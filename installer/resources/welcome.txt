@@ -1,0 +1,32 @@
+Welcome to DevPort Manager Setup
+
+DevPort Manager is a next-generation integrated development environment
+that provides everything you need for local web development.
+
+What's included:
+- Apache 2.4 web server (port 8080)
+- MariaDB 10.x database (port 3306)
+- PHP 8.x with common extensions
+- Node.js 20.x LTS runtime
+- Git version control
+- phpMyAdmin database management
+- Composer PHP package manager
+
+Features:
+- One-click service control (start/stop/restart)
+- Project management with templates
+- Real-time log viewer
+- Database backup and restore
+- Environment variable management
+- Local domain mapping (*.test domains)
+
+Installation will:
+1. Install DevPort Manager to C:\DevPort\
+2. Create Start Menu and Desktop shortcuts
+3. Configure initial settings
+4. Optionally register for automatic startup
+
+Click Next to continue with the installation.
+
+For more information, visit:
+https://github.com/devport/devport-manager

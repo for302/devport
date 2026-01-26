@@ -1,0 +1,87 @@
+{
+  "version": "0.1.0",
+  "installPath": "C:\\DevPort",
+  "services": {
+    "apache": {
+      "name": "Apache",
+      "type": "webserver",
+      "executable": "runtime\\apache\\bin\\httpd.exe",
+      "port": 8080,
+      "autoStart": false,
+      "autoRestart": true,
+      "maxRestarts": 5,
+      "healthCheck": {
+        "type": "http",
+        "endpoint": "http://localhost:8080/",
+        "interval": 5000,
+        "timeout": 2000,
+        "retries": 2
+      },
+      "logConfig": {
+        "stdout": "logs\\apache\\access.log",
+        "stderr": "logs\\apache\\error.log",
+        "maxSize": "50MB",
+        "maxFiles": 5
+      }
+    },
+    "mariadb": {
+      "name": "MariaDB",
+      "type": "database",
+      "executable": "runtime\\mariadb\\bin\\mysqld.exe",
+      "port": 3306,
+      "autoStart": false,
+      "autoRestart": true,
+      "maxRestarts": 5,
+      "healthCheck": {
+        "type": "tcp",
+        "interval": 5000,
+        "timeout": 2000,
+        "retries": 2
+      },
+      "logConfig": {
+        "stdout": "logs\\mariadb\\mysql.log",
+        "stderr": "logs\\mariadb\\error.log",
+        "maxSize": "50MB",
+        "maxFiles": 5
+      }
+    }
+  },
+  "tools": {
+    "phpmyadmin": {
+      "name": "phpMyAdmin",
+      "type": "tool",
+      "dependsOn": "apache",
+      "url": "http://localhost:8080/phpmyadmin",
+      "path": "tools\\phpmyadmin"
+    },
+    "composer": {
+      "name": "Composer",
+      "type": "tool",
+      "executable": "tools\\composer\\composer.phar",
+      "path": "tools\\composer"
+    }
+  },
+  "runtime": {
+    "nodejs": {
+      "path": "runtime\\nodejs",
+      "version": "20.x"
+    },
+    "php": {
+      "path": "runtime\\php",
+      "version": "8.3.x"
+    },
+    "git": {
+      "path": "runtime\\git",
+      "version": "latest"
+    }
+  },
+  "settings": {
+    "autoStartOnBoot": false,
+    "autoStartServices": [],
+    "minimizeToTray": true,
+    "closeToTray": true,
+    "checkUpdates": true,
+    "logRetentionDays": 30
+  },
+  "projects": []
+}

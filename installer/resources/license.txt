@@ -1,0 +1,62 @@
+DevPort Manager License Agreement
+
+MIT License
+
+Copyright (c) 2024 DevPort
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+BUNDLED SOFTWARE LICENSES
+
+This software bundles the following third-party components:
+
+1. Apache HTTP Server
+   License: Apache License 2.0
+   https://www.apache.org/licenses/LICENSE-2.0
+
+2. MariaDB
+   License: GNU General Public License v2 (GPL v2)
+   https://mariadb.com/kb/en/licensing-faq/
+
+3. PHP
+   License: PHP License 3.01
+   https://www.php.net/license/3_01.txt
+
+4. Node.js
+   License: MIT License
+   https://github.com/nodejs/node/blob/main/LICENSE
+
+5. Git
+   License: GNU General Public License v2 (GPL v2)
+   https://git-scm.com/about/free-and-open-source
+
+6. phpMyAdmin
+   License: GNU General Public License v2 (GPL v2)
+   https://www.phpmyadmin.net/license/
+
+7. Composer
+   License: MIT License
+   https://github.com/composer/composer/blob/main/LICENSE
+
+--------------------------------------------------------------------------------
+
+By installing DevPort Manager, you agree to the terms of this license and
+acknowledge the licenses of all bundled software components.
