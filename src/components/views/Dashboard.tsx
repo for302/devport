@@ -1,13 +1,32 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useProjectStore, useProcessStore } from "@/stores";
 import { ProjectListItem } from "../projects/ProjectListItem";
 import { ServiceActivityLog } from "../services/ServiceActivityLog";
-import { Activity, Server, Zap } from "lucide-react";
+import { Activity, Server, Zap, RefreshCw } from "lucide-react";
+
+const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 export function Dashboard() {
   const projects = useProjectStore((state) => state.projects);
+  const fetchProjects = useProjectStore((state) => state.fetchProjects);
   const processes = useProcessStore((state) => state.processes);
   const [isLogExpanded, setIsLogExpanded] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchProjects();
+    setIsRefreshing(false);
+  }, [fetchProjects]);
+
+  // Auto-refresh every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchProjects();
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => clearInterval(interval);
+  }, [fetchProjects]);
 
   const runningCount = Object.keys(processes).length;
   const stoppedCount = projects.length - runningCount;
@@ -54,7 +73,17 @@ export function Dashboard() {
       </div>
 
       {/* Projects List */}
-      <h2 className="text-lg font-semibold text-white mb-4">Projects</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white">Projects</h2>
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded transition-colors disabled:opacity-50"
+          title="Refresh projects"
+        >
+          <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+        </button>
+      </div>
       {projects.length === 0 ? (
         <div className="text-center py-12 bg-slate-800 rounded-lg border border-slate-700">
           <Server size={48} className="mx-auto text-slate-600 mb-4" />
