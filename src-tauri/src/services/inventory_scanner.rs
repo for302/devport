@@ -1,9 +1,16 @@
 use crate::models::inventory::{InstallSource, InventoryCategory, InventoryItem, InventoryResult};
+use crate::services::port_scanner::PortScanner;
 use regex::Regex;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
 use chrono::Local;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Definition of a tool to scan for
 struct ToolDefinition {
@@ -83,25 +90,8 @@ const TOOL_DEFINITIONS: &[ToolDefinition] = &[
         version_regex: r"Apache/(\d+\.\d+\.\d+)",
         port: Some(80),
     },
-    // Databases
-    ToolDefinition {
-        id: "mysql",
-        name: "MySQL/MariaDB",
-        category: InventoryCategory::Database,
-        commands: &["mysql", "mysqld"],
-        known_paths: &[
-            "C:\\xampp\\mysql\\bin\\mysql.exe",
-            "D:\\xampp\\mysql\\bin\\mysql.exe",
-            "C:\\laragon\\bin\\mariadb\\mariadb-10.9.3-winx64\\bin\\mysql.exe",
-            "C:\\laragon\\bin\\mysql\\mysql-8.0.30-winx64\\bin\\mysql.exe",
-            "C:\\wamp64\\bin\\mariadb\\mariadb10.11.4\\bin\\mysql.exe",
-            "C:\\DevPort\\runtime\\mariadb\\bin\\mysql.exe",
-            "C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysql.exe",
-        ],
-        version_arg: "--version",
-        version_regex: r"(?:mysql|MariaDB)[^\d]*(\d+\.\d+\.\d+)",
-        port: Some(3306),
-    },
+    // Databases - NOTE: mysql/mariadb detection is handled separately in scan_mysql_or_mariadb()
+    //            because XAMPP's mysql.exe is actually MariaDB engine.
     // Build Tools
     ToolDefinition {
         id: "vite",
@@ -134,7 +124,7 @@ const TOOL_DEFINITIONS: &[ToolDefinition] = &[
         port: None,
     },
     ToolDefinition {
-        id: "tsc",
+        id: "typescript",
         name: "TypeScript",
         category: InventoryCategory::BuildTool,
         commands: &["tsc"],
@@ -161,67 +151,6 @@ const TOOL_DEFINITIONS: &[ToolDefinition] = &[
         known_paths: &[],
         version_arg: "--version",
         version_regex: r"Apache Maven (\d+\.\d+\.\d+)",
-        port: None,
-    },
-    // Frameworks CLI
-    ToolDefinition {
-        id: "create-react-app",
-        name: "Create React App",
-        category: InventoryCategory::Framework,
-        commands: &["create-react-app"],
-        known_paths: &[],
-        version_arg: "--version",
-        version_regex: r"(\d+\.\d+\.\d+)",
-        port: None,
-    },
-    ToolDefinition {
-        id: "vue",
-        name: "Vue CLI",
-        category: InventoryCategory::Framework,
-        commands: &["vue"],
-        known_paths: &[],
-        version_arg: "--version",
-        version_regex: r"(\d+\.\d+\.\d+)",
-        port: None,
-    },
-    ToolDefinition {
-        id: "angular",
-        name: "Angular CLI",
-        category: InventoryCategory::Framework,
-        commands: &["ng"],
-        known_paths: &[],
-        version_arg: "version",
-        version_regex: r"Angular CLI: (\d+\.\d+\.\d+)",
-        port: None,
-    },
-    ToolDefinition {
-        id: "laravel",
-        name: "Laravel",
-        category: InventoryCategory::Framework,
-        commands: &["laravel"],
-        known_paths: &[],
-        version_arg: "--version",
-        version_regex: r"(\d+\.\d+\.\d+)",
-        port: None,
-    },
-    ToolDefinition {
-        id: "next",
-        name: "Next.js",
-        category: InventoryCategory::Framework,
-        commands: &["next"],
-        known_paths: &[],
-        version_arg: "--version",
-        version_regex: r"(\d+\.\d+\.\d+)",
-        port: None,
-    },
-    ToolDefinition {
-        id: "nuxt",
-        name: "Nuxt",
-        category: InventoryCategory::Framework,
-        commands: &["nuxt", "nuxi"],
-        known_paths: &[],
-        version_arg: "--version",
-        version_regex: r"(\d+\.\d+\.\d+)",
         port: None,
     },
     // Package Managers
@@ -355,12 +284,52 @@ const TOOL_DEFINITIONS: &[ToolDefinition] = &[
     },
 ];
 
+/// Definition of a web application to scan for (non-executable, directory-based)
+struct WebAppDefinition {
+    id: &'static str,
+    name: &'static str,
+    category: InventoryCategory,
+    /// Known directory paths where this web app might be installed
+    known_dirs: &'static [&'static str],
+    /// File to read for version detection (relative to the install directory)
+    version_file: &'static str,
+    /// Regex to extract version from the version file content
+    version_regex: &'static str,
+    port: Option<u16>,
+}
+
+const WEBAPP_DEFINITIONS: &[WebAppDefinition] = &[
+    WebAppDefinition {
+        id: "phpmyadmin",
+        name: "phpMyAdmin",
+        category: InventoryCategory::DevTool,
+        known_dirs: &[
+            "C:\\xampp\\phpMyAdmin",
+            "D:\\xampp\\phpMyAdmin",
+            "C:\\wamp64\\apps\\phpmyadmin",
+            "C:\\laragon\\etc\\apps\\phpMyAdmin",
+            "C:\\DevPort\\tools\\phpmyadmin",
+        ],
+        version_file: "VERSION",
+        version_regex: r"(\d+\.\d+\.\d+)",
+        port: None,
+    },
+];
+
 pub struct InventoryScanner;
 
 impl InventoryScanner {
     /// Find executable using the 'where' command on Windows
     fn find_executable_in_path(cmd: &str) -> Option<String> {
+        #[cfg(windows)]
         let output = Command::new("where")
+            .arg(cmd)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+
+        #[cfg(not(windows))]
+        let output = Command::new("which")
             .arg(cmd)
             .output()
             .ok()?;
@@ -411,6 +380,14 @@ impl InventoryScanner {
 
     /// Get version using a command with specified arguments
     fn get_version(executable_path: &str, args: &str, regex_pattern: &str) -> Option<String> {
+        #[cfg(windows)]
+        let output = Command::new(executable_path)
+            .arg(args)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+
+        #[cfg(not(windows))]
         let output = Command::new(executable_path)
             .arg(args)
             .output()
@@ -458,6 +435,129 @@ impl InventoryScanner {
         }
     }
 
+    /// Scan a web application (directory-based, no executable)
+    fn scan_webapp(def: &WebAppDefinition) -> InventoryItem {
+        let mut item = InventoryItem::new(
+            def.id.to_string(),
+            def.name.to_string(),
+            def.category.clone(),
+        );
+        item.port = def.port;
+
+        for dir in def.known_dirs {
+            let dir_path = Path::new(dir);
+            if dir_path.is_dir() {
+                item.is_installed = true;
+                item.executable_path = Some(dir.to_string());
+                item.install_source = Self::detect_install_source(dir);
+
+                // Try to read version from version file
+                let version_file_path = dir_path.join(def.version_file);
+                if let Ok(content) = std::fs::read_to_string(&version_file_path) {
+                    if let Ok(re) = Regex::new(def.version_regex) {
+                        if let Some(caps) = re.captures(&content) {
+                            item.version = caps.get(1).map(|m| m.as_str().to_string());
+                        }
+                    }
+                }
+                return item;
+            }
+        }
+
+        item
+    }
+
+    /// MySQL/MariaDB known paths for scanning
+    const MYSQL_KNOWN_PATHS: &'static [&'static str] = &[
+        "C:\\xampp\\mysql\\bin\\mysql.exe",
+        "D:\\xampp\\mysql\\bin\\mysql.exe",
+        "C:\\laragon\\bin\\mariadb\\mariadb-10.9.3-winx64\\bin\\mysql.exe",
+        "C:\\laragon\\bin\\mysql\\mysql-8.0.30-winx64\\bin\\mysql.exe",
+        "C:\\wamp64\\bin\\mariadb\\mariadb10.11.4\\bin\\mysql.exe",
+        "C:\\DevPort\\runtime\\mariadb\\bin\\mysql.exe",
+        "C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysql.exe",
+    ];
+
+    /// Detect MySQL or MariaDB by running the executable and checking the version output.
+    /// Returns (mariadb_item, mysql_item) - one will be detected, the other not.
+    fn scan_mysql_or_mariadb() -> (InventoryItem, InventoryItem) {
+        let mut mariadb_item = InventoryItem::new(
+            "mariadb".to_string(),
+            "MariaDB".to_string(),
+            InventoryCategory::Database,
+        );
+        mariadb_item.port = Some(3306);
+
+        let mut mysql_item = InventoryItem::new(
+            "mysql".to_string(),
+            "MySQL".to_string(),
+            InventoryCategory::Database,
+        );
+        mysql_item.port = Some(3306);
+
+        // Find the mysql executable
+        let exe_path = Self::find_executable_in_path("mysql")
+            .or_else(|| Self::find_executable_in_path("mysqld"))
+            .or_else(|| Self::find_executable_in_known_paths(Self::MYSQL_KNOWN_PATHS));
+
+        let Some(path) = exe_path else {
+            return (mariadb_item, mysql_item);
+        };
+
+        // Run --version and check whether output contains "MariaDB"
+        let version_output = {
+            #[cfg(windows)]
+            let output = Command::new(&path)
+                .arg("--version")
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+
+            #[cfg(not(windows))]
+            let output = Command::new(&path)
+                .arg("--version")
+                .output();
+
+            match output {
+                Ok(o) => format!(
+                    "{}\n{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                ),
+                Err(_) => return (mariadb_item, mysql_item),
+            }
+        };
+
+        let is_mariadb = version_output.contains("MariaDB") || version_output.contains("mariadb");
+        let source = Self::detect_install_source(&path);
+
+        // Extract version
+        let version_regex = if is_mariadb {
+            r"MariaDB[^\d]*(\d+\.\d+\.\d+)"
+        } else {
+            r"(?:mysql|Ver)[^\d]*(\d+\.\d+\.\d+)"
+        };
+        let version = if let Ok(re) = Regex::new(version_regex) {
+            re.captures(&version_output)
+                .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+        } else {
+            None
+        };
+
+        if is_mariadb {
+            mariadb_item.is_installed = true;
+            mariadb_item.executable_path = Some(path);
+            mariadb_item.install_source = source;
+            mariadb_item.version = version;
+        } else {
+            mysql_item.is_installed = true;
+            mysql_item.executable_path = Some(path);
+            mysql_item.install_source = source;
+            mysql_item.version = version;
+        }
+
+        (mariadb_item, mysql_item)
+    }
+
     /// Scan a single tool
     fn scan_tool(def: &ToolDefinition) -> InventoryItem {
         let mut item = InventoryItem::new(
@@ -489,12 +589,40 @@ impl InventoryScanner {
         item
     }
 
+    /// Check if a port is actively listening (i.e. service is running)
+    fn is_port_listening(port: u16) -> bool {
+        !PortScanner::is_port_available(port)
+    }
+
+    /// Set is_running for all installed items that have a port defined
+    fn detect_running_by_port(result: &mut InventoryResult) {
+        let all_categories: [&mut Vec<InventoryItem>; 7] = [
+            &mut result.runtimes,
+            &mut result.web_servers,
+            &mut result.databases,
+            &mut result.build_tools,
+            &mut result.frameworks,
+            &mut result.package_managers,
+            &mut result.dev_tools,
+        ];
+
+        for items in all_categories {
+            for item in items.iter_mut() {
+                if item.is_installed {
+                    if let Some(port) = item.port {
+                        item.is_running = Self::is_port_listening(port);
+                    }
+                }
+            }
+        }
+    }
+
     /// Scan all tools and return the result
     pub async fn scan_all() -> InventoryResult {
         let start = Instant::now();
         let mut result = InventoryResult::new();
 
-        // Scan all tools
+        // Scan all CLI tools
         for def in TOOL_DEFINITIONS {
             let item = Self::scan_tool(def);
             match def.category {
@@ -508,6 +636,28 @@ impl InventoryScanner {
             }
         }
 
+        // Scan MySQL/MariaDB separately (engine detection)
+        let (mariadb_item, mysql_item) = Self::scan_mysql_or_mariadb();
+        result.databases.push(mariadb_item);
+        result.databases.push(mysql_item);
+
+        // Scan web applications (directory-based)
+        for def in WEBAPP_DEFINITIONS {
+            let item = Self::scan_webapp(def);
+            match def.category {
+                InventoryCategory::Runtime => result.runtimes.push(item),
+                InventoryCategory::WebServer => result.web_servers.push(item),
+                InventoryCategory::Database => result.databases.push(item),
+                InventoryCategory::BuildTool => result.build_tools.push(item),
+                InventoryCategory::Framework => result.frameworks.push(item),
+                InventoryCategory::PackageManager => result.package_managers.push(item),
+                InventoryCategory::DevTool => result.dev_tools.push(item),
+            }
+        }
+
+        // Detect running state by checking if defined ports are in use
+        Self::detect_running_by_port(&mut result);
+
         result.scanned_at = Local::now().to_rfc3339();
         result.scan_duration_ms = start.elapsed().as_millis() as u64;
 
@@ -516,11 +666,27 @@ impl InventoryScanner {
 
     /// Refresh a single inventory item by ID
     pub async fn refresh_item(id: &str) -> Option<InventoryItem> {
-        for def in TOOL_DEFINITIONS {
-            if def.id == id {
-                return Some(Self::scan_tool(def));
+        let mut item = if id == "mariadb" || id == "mysql" {
+            // Handle mysql/mariadb specially
+            let (mariadb_item, mysql_item) = Self::scan_mysql_or_mariadb();
+            Some(if id == "mariadb" { mariadb_item } else { mysql_item })
+        } else if let Some(def) = TOOL_DEFINITIONS.iter().find(|d| d.id == id) {
+            Some(Self::scan_tool(def))
+        } else if let Some(def) = WEBAPP_DEFINITIONS.iter().find(|d| d.id == id) {
+            Some(Self::scan_webapp(def))
+        } else {
+            None
+        };
+
+        // Detect running state by port
+        if let Some(ref mut item) = item {
+            if item.is_installed {
+                if let Some(port) = item.port {
+                    item.is_running = Self::is_port_listening(port);
+                }
             }
         }
-        None
+
+        item
     }
 }

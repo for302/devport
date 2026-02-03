@@ -3,6 +3,12 @@ use crate::services::port_scanner::PortScanner;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessDetails {
@@ -36,6 +42,7 @@ pub async fn check_port_available(port: u16) -> Result<bool, String> {
 pub async fn get_process_details(pid: u32) -> Result<ProcessDetails, String> {
     tokio::task::spawn_blocking(move || {
         // Use WMIC to get process details on Windows
+        #[cfg(windows)]
         let output = Command::new("wmic")
             .args([
                 "process",
@@ -45,6 +52,13 @@ pub async fn get_process_details(pid: u32) -> Result<ProcessDetails, String> {
                 "Name,ExecutablePath,CommandLine",
                 "/format:csv",
             ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("Failed to get process details: {}", e))?;
+
+        #[cfg(not(windows))]
+        let output = Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
             .output()
             .map_err(|e| format!("Failed to get process details: {}", e))?;
 
@@ -85,8 +99,16 @@ pub async fn get_process_details(pid: u32) -> Result<ProcessDetails, String> {
 pub async fn kill_process_by_pid(pid: u32) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         // Use taskkill with /F (force) and /T (tree - kill child processes too)
+        #[cfg(windows)]
         let output = Command::new("taskkill")
             .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("Failed to kill process: {}", e))?;
+
+        #[cfg(not(windows))]
+        let output = Command::new("kill")
+            .args(["-9", &pid.to_string()])
             .output()
             .map_err(|e| format!("Failed to kill process: {}", e))?;
 

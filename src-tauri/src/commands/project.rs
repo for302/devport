@@ -38,6 +38,7 @@ pub struct DetectedProjectInfo {
     pub name: String,
     pub start_command: String,
     pub default_port: u16,
+    pub venv_path: Option<String>,
 }
 
 #[tauri::command]
@@ -154,5 +155,6 @@ pub fn detect_project_type(path: String) -> Result<DetectedProjectInfo, String> 
         name: detected.name,
         start_command: detected.start_command,
         default_port: detected.default_port,
+        venv_path: detected.venv_path,
     })
 }

@@ -21,7 +21,7 @@ impl Storage {
     pub fn new() -> Result<Self, StorageError> {
         let data_dir = dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("devport-manager");
+            .join("clickdevport");
 
         fs::create_dir_all(&data_dir)?;
 

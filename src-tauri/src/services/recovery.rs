@@ -37,7 +37,7 @@ impl RecoveryManager {
     pub fn new() -> Self {
         let state_file = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("devport-manager")
+            .join("clickdevport")
             .join("session_state.json");
 
         Self { state_file }
@@ -78,9 +78,11 @@ impl RecoveryManager {
     #[cfg(windows)]
     pub fn is_pid_running(&self, pid: u32) -> bool {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
 
         let output = Command::new("tasklist")
             .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output();
 
         match output {
@@ -102,9 +104,11 @@ impl RecoveryManager {
     #[cfg(windows)]
     pub fn kill_stale_process(&self, pid: u32) -> Result<(), String> {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
 
         let output = Command::new("taskkill")
             .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output()
             .map_err(|e| e.to_string())?;
 
@@ -189,9 +193,11 @@ impl RecoveryManager {
     #[cfg(windows)]
     pub fn is_port_in_use(&self, port: u16) -> bool {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
 
         let output = Command::new("netstat")
             .args(["-ano"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output();
 
         match output {
@@ -213,9 +219,11 @@ impl RecoveryManager {
     #[cfg(windows)]
     pub fn get_pid_on_port(&self, port: u16) -> Option<u32> {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
 
         let output = Command::new("netstat")
             .args(["-ano"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output()
             .ok()?;
 

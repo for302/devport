@@ -17,6 +17,11 @@ const projectTypeColors: Record<string, string> = {
   angular: "bg-red-500 text-white",
   svelte: "bg-orange-500 text-white",
   python: "bg-yellow-600 text-black",
+  pythontkinter: "bg-yellow-600 text-black",
+  pythonpyqt: "bg-yellow-600 text-black",
+  pythonwx: "bg-yellow-600 text-black",
+  pythonpygame: "bg-yellow-600 text-black",
+  pythonkivy: "bg-yellow-600 text-black",
   django: "bg-green-700 text-white",
   flask: "bg-gray-600 text-white",
   fastapi: "bg-teal-500 text-white",
@@ -43,7 +48,7 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
     addLog(project.name, "Starting project...", "info");
     try {
       await startProject(project.id);
-      addLog(project.name, `Started on port ${project.port}`, "success");
+      addLog(project.name, project.port > 0 ? `Started on port ${project.port}` : "Started", "success");
     } catch (err) {
       addLog(project.name, `Failed to start: ${err}`, "error");
     }
@@ -63,7 +68,7 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
     addLog(project.name, "Restarting project...", "info");
     try {
       await restartProject(project.id);
-      addLog(project.name, `Restarted on port ${project.port}`, "success");
+      addLog(project.name, project.port > 0 ? `Restarted on port ${project.port}` : "Restarted", "success");
     } catch (err) {
       addLog(project.name, `Failed to restart: ${err}`, "error");
     }
@@ -137,7 +142,7 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
 
       {/* Port */}
       <span className="font-mono text-sm text-white bg-slate-700 px-2 py-0.5 rounded w-16 text-center flex-shrink-0">
-        {project.port}
+        {project.port > 0 ? project.port : "—"}
       </span>
 
       {/* Quick Actions */}
@@ -156,6 +161,7 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
         >
           <Terminal size={16} />
         </button>
+        {project.port > 0 && (
         <button
           onClick={handleOpenBrowser}
           className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
@@ -163,6 +169,7 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
         >
           <Globe size={16} />
         </button>
+        )}
         <button
           onClick={handleOpenExplorer}
           className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"

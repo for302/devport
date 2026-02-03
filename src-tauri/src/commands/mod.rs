@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod bundler;
 pub mod config;
 pub mod credentials;
@@ -6,6 +7,7 @@ pub mod env;
 pub mod env_profile;
 pub mod health;
 pub mod hosts;
+pub mod installer;
 pub mod inventory;
 pub mod log;
 pub mod open;

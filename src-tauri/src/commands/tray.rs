@@ -20,9 +20,9 @@ pub async fn update_tray_status<R: Runtime>(
     // Get the tray icon and update tooltip based on status
     if let Some(tray) = app.tray_by_id("main-tray") {
         let tooltip = if any_running {
-            "DevPort Manager - Services Running"
+            "ClickDevPort - Services Running"
         } else {
-            "DevPort Manager - No Services Running"
+            "ClickDevPort - No Services Running"
         };
         tray.set_tooltip(Some(tooltip)).map_err(|e| e.to_string())?;
     }

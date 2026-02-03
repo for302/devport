@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
 type ModalType = "addProject" | "editProject" | "portConflict" | "confirmDelete" | "envEditor" | "serviceSettings" | "configEditor" | null;
-type ViewType = "dashboard" | "services" | "ports" | "logs" | "settings";
+type ViewType = "dashboard" | "services" | "ports" | "logs" | "settings" | "installer";
 
 export type NotificationType = "info" | "success" | "warning" | "error";
 

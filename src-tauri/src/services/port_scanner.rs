@@ -2,6 +2,12 @@ use crate::models::PortInfo;
 use std::process::Command;
 use thiserror::Error;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Error, Debug)]
 pub enum PortScannerError {
     #[error("Failed to execute netstat: {0}")]
@@ -14,6 +20,14 @@ pub struct PortScanner;
 
 impl PortScanner {
     pub fn scan_ports() -> Result<Vec<PortInfo>, PortScannerError> {
+        #[cfg(windows)]
+        let output = Command::new("netstat")
+            .args(["-ano"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| PortScannerError::ExecutionError(e.to_string()))?;
+
+        #[cfg(not(windows))]
         let output = Command::new("netstat")
             .args(["-ano"])
             .output()
@@ -99,6 +113,14 @@ impl PortScanner {
             return None;
         }
 
+        #[cfg(windows)]
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+
+        #[cfg(not(windows))]
         let output = Command::new("tasklist")
             .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
             .output()
@@ -115,6 +137,14 @@ impl PortScanner {
     }
 
     pub fn is_port_available(port: u16) -> bool {
+        #[cfg(windows)]
+        let output = Command::new("netstat")
+            .args(["-ano"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok();
+
+        #[cfg(not(windows))]
         let output = Command::new("netstat")
             .args(["-ano"])
             .output()

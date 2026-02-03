@@ -144,7 +144,7 @@ export function UninstallPanel() {
       <div className="p-4 bg-red-900/20 border border-red-800 rounded-lg flex items-start gap-3">
         <AlertTriangle className="text-red-400 shrink-0 mt-0.5" size={20} />
         <div>
-          <p className="text-red-400 font-medium">Uninstall DevPort Manager</p>
+          <p className="text-red-400 font-medium">Uninstall ClickDevPort</p>
           <p className="text-sm text-red-400/70">
             This action will remove DevPort components from your system. Please
             review the options carefully before proceeding.
@@ -434,7 +434,7 @@ function UninstallComplete({ result }: UninstallCompleteProps) {
               Uninstall Complete
             </p>
             <p className="text-sm text-green-400/70 mt-1">
-              DevPort Manager has been successfully removed from your system.
+              ClickDevPort has been successfully removed from your system.
             </p>
             {result.requiresReboot && (
               <p className="text-sm text-amber-400 mt-2">

@@ -21,6 +21,7 @@ interface InventorySectionProps {
   onRestartService: (serviceId: string) => void;
   onViewLogs: (serviceId: string, serviceName: string) => void;
   onSettings: (serviceId: string) => void;
+  onInstallItem?: (itemId: string, itemName: string) => void;
 }
 
 export function InventorySection({
@@ -40,6 +41,7 @@ export function InventorySection({
   onRestartService,
   onViewLogs,
   onSettings,
+  onInstallItem,
 }: InventorySectionProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
@@ -133,6 +135,11 @@ export function InventorySection({
                       : undefined
                   }
                   onSettings={serviceId ? () => onSettings(serviceId) : undefined}
+                  onInstall={
+                    !item.isInstalled && onInstallItem
+                      ? () => onInstallItem(item.id, item.name)
+                      : undefined
+                  }
                 />
               );
             })

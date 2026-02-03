@@ -35,6 +35,7 @@ export function PortTable() {
         <thead>
           <tr className="bg-slate-900/50 text-left">
             <th className="px-4 py-3 text-sm font-medium text-slate-400">Port</th>
+            <th className="px-4 py-3 text-sm font-medium text-slate-400">Service</th>
             <th className="px-4 py-3 text-sm font-medium text-slate-400">Protocol</th>
             <th className="px-4 py-3 text-sm font-medium text-slate-400">State</th>
             <th className="px-4 py-3 text-sm font-medium text-slate-400">Process</th>

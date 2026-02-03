@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DevPort Manager",
+  "productName": "ClickDevPort",
   "version": "0.1.0",
-  "identifier": "com.devport.manager",
+  "identifier": "com.clickdevport.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "DevPort Manager",
+        "title": "ClickDevPort",
         "width": 1200,
         "height": 800,
         "minWidth": 900,
@@ -33,13 +33,35 @@
   "plugins": {},
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": [],
+    "copyright": "Copyright © 2024 ClickDevPort",
+    "category": "DeveloperTool",
+    "shortDescription": "통합 개발 환경 관리자",
+    "longDescription": "XAMPP를 대체하는 차세대 통합 개발 환경 관리자. 설치, 서비스 관리, 프로젝트 관리, DB 관리까지 올인원 데스크톱 앱.",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": {
+        "language": "ko-KR",
+        "upgradeCode": "F5A8E2C1-3B4D-5E6F-7A8B-9C0D1E2F3A4B"
+      },
+      "nsis": {
+        "languages": ["Korean", "English"],
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico",
+        "headerImage": null,
+        "sidebarImage": null,
+        "installerHooks": "installer-hooks.nsi"
+      }
+    }
   }
 }

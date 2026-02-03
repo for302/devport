@@ -1,5 +1,6 @@
 use crate::models::{Service, ServiceStatus, HealthCheckType};
 use crate::services::log_manager::LogManager;
+use crate::services::port_scanner::PortScanner;
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use tokio::time::{sleep, Duration};
@@ -28,10 +29,50 @@ impl ServiceManager {
         services.insert(apache.id.clone(), apache);
         services.insert(mariadb.id.clone(), mariadb);
 
-        Self {
+        let mut manager = Self {
             services,
             processes: HashMap::new(),
             log_manager: LogManager::new(),
+        };
+
+        // Detect externally running services (e.g. started by XAMPP)
+        manager.detect_external_processes();
+
+        manager
+    }
+
+    /// Detect services that are already running externally (not started by DevPort).
+    /// Uses port scanning to find PIDs occupying service ports.
+    fn detect_external_processes(&mut self) {
+        let port_infos = match PortScanner::scan_ports() {
+            Ok(infos) => infos,
+            Err(_) => return,
+        };
+
+        for service in self.services.values_mut() {
+            if !service.installed || service.is_running() {
+                continue;
+            }
+
+            // Check if the service's port is occupied
+            if let Some(port_info) = port_infos.iter().find(|p| {
+                p.port == service.port
+                    && p.state.contains("LISTEN")
+            }) {
+                service.status = ServiceStatus::Running;
+                service.pid = port_info.pid;
+
+                let log_path = self.log_manager.get_log_path(&service.id, "stdout");
+                let _ = self.log_manager.write_log(
+                    &log_path,
+                    &format!(
+                        "Detected externally running {} on port {} (PID: {})",
+                        service.name,
+                        service.port,
+                        port_info.pid.map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_string())
+                    ),
+                );
+            }
         }
     }
 
@@ -97,8 +138,8 @@ impl ServiceManager {
         cmd.args(&args)
             .current_dir(&work_dir)
             .envs(&env)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
 
         #[cfg(windows)]
         {
@@ -141,10 +182,13 @@ impl ServiceManager {
             return Ok(());
         }
 
+        let pid = service.pid;
+
         if let Some(mut child) = self.processes.remove(id) {
+            // Process started by DevPort - kill via Child handle
             #[cfg(windows)]
             {
-                if let Some(pid) = self.services.get(id).and_then(|s| s.pid) {
+                if let Some(pid) = pid {
                     let _ = Command::new("taskkill")
                         .args(["/F", "/T", "/PID", &pid.to_string()])
                         .creation_flags(CREATE_NO_WINDOW)
@@ -158,6 +202,28 @@ impl ServiceManager {
             }
 
             let _ = child.wait();
+        } else if let Some(pid) = pid {
+            // Externally started process - kill by PID directly
+            #[cfg(windows)]
+            {
+                let output = Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output()
+                    .map_err(|e| format!("Failed to kill process: {}", e))?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(format!("Failed to stop external process (PID {}): {}", pid, stderr));
+                }
+            }
+
+            #[cfg(not(windows))]
+            {
+                let _ = Command::new("kill")
+                    .args(["-9", &pid.to_string()])
+                    .output();
+            }
         }
 
         if let Some(service) = self.services.get_mut(id) {

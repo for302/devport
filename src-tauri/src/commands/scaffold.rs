@@ -2,6 +2,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use serde::{Deserialize, Serialize};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScaffoldOptions {
@@ -83,11 +89,15 @@ async fn scaffold_nextjs(name: &str, parent: &std::path::Path, pm: &str, path_en
         _ => vec!["create-next-app@latest", name, "--typescript", "--eslint", "--tailwind", "--src-dir", "--app", "--import-alias", "@/*", "--use-npm"],
     };
 
-    let output = Command::new(create_cmd)
-        .args(&args)
+    let mut cmd = Command::new(create_cmd);
+    cmd.args(&args)
         .current_dir(parent)
-        .env("PATH", path_env)
-        .output()
+        .env("PATH", path_env);
+
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let output = cmd.output()
         .map_err(|e| format!("Failed to run create-next-app: {}", e))?;
 
     if output.status.success() {
@@ -111,11 +121,15 @@ async fn scaffold_vite(name: &str, parent: &std::path::Path, pm: &str, template:
         _ => ("npm", vec!["create", "vite@latest", name, "--", "--template", &template_name]),
     };
 
-    let output = Command::new(cmd)
-        .args(&args)
+    let mut command = Command::new(cmd);
+    command.args(&args)
         .current_dir(parent)
-        .env("PATH", path_env)
-        .output()
+        .env("PATH", path_env);
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let output = command.output()
         .map_err(|e| format!("Failed to run create vite: {}", e))?;
 
     if output.status.success() {
@@ -128,11 +142,15 @@ async fn scaffold_vite(name: &str, parent: &std::path::Path, pm: &str, template:
 
 async fn scaffold_laravel(name: &str, parent: &std::path::Path, path_env: &str) -> Result<String, String> {
     // Use composer create-project
-    let output = Command::new("composer")
-        .args(["create-project", "laravel/laravel", name])
+    let mut cmd = Command::new("composer");
+    cmd.args(["create-project", "laravel/laravel", name])
         .current_dir(parent)
-        .env("PATH", path_env)
-        .output()
+        .env("PATH", path_env);
+
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let output = cmd.output()
         .map_err(|e| format!("Failed to run composer: {}", e))?;
 
     if output.status.success() {
@@ -209,11 +227,15 @@ pub async fn install_dependencies(project_path: String, package_manager: String)
             _ => "npm",
         };
 
-        let output = Command::new(cmd)
-            .arg("install")
+        let mut command = Command::new(cmd);
+        command.arg("install")
             .current_dir(&path)
-            .env("PATH", &devport_path)
-            .output()
+            .env("PATH", &devport_path);
+
+        #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
+
+        let output = command.output()
             .map_err(|e| format!("Failed to run {}: {}", cmd, e))?;
 
         if output.status.success() {
@@ -226,11 +248,15 @@ pub async fn install_dependencies(project_path: String, package_manager: String)
 
     // Check for composer.json (PHP project)
     if path.join("composer.json").exists() {
-        let output = Command::new("composer")
-            .arg("install")
+        let mut cmd = Command::new("composer");
+        cmd.arg("install")
             .current_dir(&path)
-            .env("PATH", &devport_path)
-            .output()
+            .env("PATH", &devport_path);
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output()
             .map_err(|e| format!("Failed to run composer: {}", e))?;
 
         if output.status.success() {
@@ -248,10 +274,14 @@ pub async fn install_dependencies(project_path: String, package_manager: String)
 #[tauri::command]
 pub async fn check_python_available() -> Result<(bool, String), String> {
     // Try python first, then python3
-    for cmd in ["python", "python3"] {
-        let output = Command::new(cmd)
-            .arg("--version")
-            .output();
+    for cmd_name in ["python", "python3"] {
+        let mut cmd = Command::new(cmd_name);
+        cmd.arg("--version");
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output();
 
         if let Ok(out) = output {
             if out.status.success() {

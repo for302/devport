@@ -77,7 +77,7 @@ export function ConfirmDeleteModal() {
           )}
 
           <p className="text-sm text-slate-400">
-            This will remove the project from DevPort Manager. Your project files will not be affected.
+            This will remove the project from ClickDevPort. Your project files will not be affected.
           </p>
         </div>
 

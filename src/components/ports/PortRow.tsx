@@ -3,6 +3,7 @@ import { Info, X, Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { PortInfo, Project } from "@/types";
 import { usePortStore } from "@/stores";
+import { getPortDescription } from "@/utils/portDescriptions";
 
 interface ProcessDetails {
   pid: number;
@@ -38,6 +39,7 @@ export function PortRow({ port }: PortRowProps) {
   };
 
   const stateColor = stateColors[port.state] || "text-slate-400";
+  const description = getPortDescription(port.port, port.processName);
 
   const handleShowProcessInfo = async () => {
     if (!port.pid) return;
@@ -79,6 +81,16 @@ export function PortRow({ port }: PortRowProps) {
       <tr className="border-t border-slate-700 hover:bg-slate-700/30 transition-colors">
         <td className="px-4 py-3">
           <span className="font-mono text-white">{port.port}</span>
+        </td>
+        <td className="px-4 py-3">
+          {description ? (
+            <div>
+              <span className="text-blue-400 font-medium">{description.name}</span>
+              <span className="text-slate-500 text-xs ml-2">{description.description}</span>
+            </div>
+          ) : (
+            <span className="text-slate-500">-</span>
+          )}
         </td>
         <td className="px-4 py-3">
           <span className="text-slate-300">{port.protocol}</span>
@@ -134,7 +146,7 @@ export function PortRow({ port }: PortRowProps) {
       {/* Process Info Modal */}
       {showProcessInfo && processDetails && (
         <tr>
-          <td colSpan={7} className="p-0">
+          <td colSpan={8} className="p-0">
             <div className="mx-4 my-2 p-4 bg-slate-900 rounded-lg border border-slate-600">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-medium text-white">Process Details</h4>
@@ -177,7 +189,7 @@ export function PortRow({ port }: PortRowProps) {
       {/* Kill Confirmation Modal */}
       {showKillConfirm && (
         <tr>
-          <td colSpan={7} className="p-0">
+          <td colSpan={8} className="p-0">
             <div className="mx-4 my-2 p-4 bg-red-900/20 rounded-lg border border-red-800">
               <div className="flex items-start gap-3">
                 <div className="p-2 bg-red-500/20 rounded-lg">

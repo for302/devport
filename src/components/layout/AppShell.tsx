@@ -6,6 +6,7 @@ import { ServicesView } from "../views/ServicesView";
 import { PortsView } from "../views/PortsView";
 import { LogsView } from "../views/LogsView";
 import { SettingsView } from "../views/SettingsView";
+import { InstallerView } from "../views/InstallerView";
 import { AddProjectModal } from "../modals/AddProjectModal";
 import { PortConflictModal } from "../modals/PortConflictModal";
 import { ConfirmDeleteModal } from "../modals/ConfirmDeleteModal";
@@ -70,6 +71,8 @@ export function AppShell() {
         return <LogsView />;
       case "settings":
         return <SettingsView />;
+      case "installer":
+        return <InstallerView />;
       default:
         return <Dashboard />;
     }

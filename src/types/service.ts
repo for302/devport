@@ -67,7 +67,7 @@ export const SERVICE_TYPE_ICONS: Record<ServiceType, string> = {
   tool: '🔧',
 };
 
-// All services supported by DevPort Manager
+// All services supported by ClickDevPort
 export interface SupportedService {
   id: string;
   name: string;

@@ -3,7 +3,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-const TASK_NAME: &str = "DevPort Manager Auto-Start";
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+const TASK_NAME: &str = "ClickDevPort Auto-Start";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +26,7 @@ impl SchedulerManager {
     pub fn new() -> Self {
         let config_file = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("devport-manager")
+            .join("clickdevport")
             .join("autostart_config.json");
 
         Self { config_file }
@@ -46,20 +52,24 @@ impl SchedulerManager {
         // /tr - program to run
         // /sc onlogon - trigger at user logon
         // /rl highest - run with highest privileges
-        let output = Command::new("schtasks")
-            .args([
-                "/create",
-                "/tn",
-                TASK_NAME,
-                "/tr",
-                &format!("\"{}\"", exe_path),
-                "/sc",
-                "onlogon",
-                "/rl",
-                "highest",
-                "/f", // Force create (overwrite if exists)
-            ])
-            .output()
+        let mut cmd = Command::new("schtasks");
+        cmd.args([
+            "/create",
+            "/tn",
+            TASK_NAME,
+            "/tr",
+            &format!("\"{}\"", exe_path),
+            "/sc",
+            "onlogon",
+            "/rl",
+            "highest",
+            "/f", // Force create (overwrite if exists)
+        ]);
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output()
             .map_err(|e| format!("Failed to execute schtasks: {}", e))?;
 
         if output.status.success() {
@@ -86,14 +96,18 @@ impl SchedulerManager {
     /// Unregister the auto-start task from Windows Task Scheduler
     #[cfg(windows)]
     pub fn unregister_auto_start(&self) -> Result<(), String> {
-        let output = Command::new("schtasks")
-            .args([
-                "/delete",
-                "/tn",
-                TASK_NAME,
-                "/f", // Force delete without confirmation
-            ])
-            .output()
+        let mut cmd = Command::new("schtasks");
+        cmd.args([
+            "/delete",
+            "/tn",
+            TASK_NAME,
+            "/f", // Force delete without confirmation
+        ]);
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output()
             .map_err(|e| format!("Failed to execute schtasks: {}", e))?;
 
         // Update config to reflect disabled state
@@ -122,9 +136,13 @@ impl SchedulerManager {
     /// Check if the auto-start task exists in Windows Task Scheduler
     #[cfg(windows)]
     pub fn is_auto_start_enabled(&self) -> Result<bool, String> {
-        let output = Command::new("schtasks")
-            .args(["/query", "/tn", TASK_NAME])
-            .output()
+        let mut cmd = Command::new("schtasks");
+        cmd.args(["/query", "/tn", TASK_NAME]);
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output()
             .map_err(|e| format!("Failed to execute schtasks: {}", e))?;
 
         // If the command succeeds, the task exists

@@ -1,13 +1,13 @@
 use crate::services::scheduler::SchedulerManager;
 
-/// Register DevPort Manager to auto-start at Windows logon
+/// Register ClickDevPort to auto-start at Windows logon
 #[tauri::command]
 pub async fn register_auto_start() -> Result<(), String> {
     let scheduler = SchedulerManager::new();
     scheduler.register_auto_start()
 }
 
-/// Unregister DevPort Manager from auto-start
+/// Unregister ClickDevPort from auto-start
 #[tauri::command]
 pub async fn unregister_auto_start() -> Result<(), String> {
     let scheduler = SchedulerManager::new();

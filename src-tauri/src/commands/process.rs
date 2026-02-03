@@ -6,6 +6,12 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[tauri::command]
 pub async fn start_project(
     project_id: String,
@@ -39,8 +45,15 @@ pub async fn stop_project(
 
     if let Some(process_info) = app_state.running_processes.remove(&project_id) {
         // Kill the process tree on Windows
+        #[cfg(windows)]
         let _ = std::process::Command::new("taskkill")
             .args(["/F", "/T", "/PID", &process_info.pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        #[cfg(not(windows))]
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &process_info.pid.to_string()])
             .output();
 
         // Emit process stopped event

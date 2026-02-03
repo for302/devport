@@ -81,6 +81,57 @@ impl HealthChecker {
         }
     }
 
+    /// Check health by verifying a process is still alive (for desktop/local apps with no port)
+    pub fn check_process_alive(project_id: &str, pid: u32) -> HealthStatus {
+        let checked_at = chrono::Utc::now().to_rfc3339();
+
+        let is_alive = Self::is_pid_alive(pid);
+
+        HealthStatus {
+            project_id: project_id.to_string(),
+            is_healthy: is_alive,
+            status_code: None,
+            response_time_ms: Some(0),
+            error: if !is_alive {
+                Some("Process is no longer running".to_string())
+            } else {
+                None
+            },
+            checked_at,
+        }
+    }
+
+    /// Check if a PID is still alive
+    fn is_pid_alive(pid: u32) -> bool {
+        #[cfg(windows)]
+        {
+            use std::process::Command;
+            // Use tasklist to check if PID exists
+            let output = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+                .output();
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    // tasklist returns "INFO: No tasks are running..." if PID not found
+                    !stdout.contains("No tasks") && stdout.contains(&pid.to_string())
+                }
+                Err(_) => false,
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            use std::process::Command;
+            // Use kill -0 to check if process exists (sends no signal)
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        }
+    }
+
     pub fn default_health_url(port: u16) -> String {
         format!("http://localhost:{}", port)
     }

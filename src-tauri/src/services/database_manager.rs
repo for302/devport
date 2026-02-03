@@ -4,6 +4,12 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use chrono::Local;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseCredentials {
@@ -70,16 +76,19 @@ impl DatabaseManager {
     pub fn execute_sql(&self, sql: &str) -> Result<String, String> {
         let creds = self.get_root_creds()?;
 
-        let output = Command::new(&self.mysql_path)
-            .args([
-                "-h", &creds.host,
-                "-P", &creds.port.to_string(),
-                "-u", &creds.username,
-                &format!("-p{}", creds.password),
-                "-e", sql,
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = Command::new(&self.mysql_path);
+        cmd.args([
+            "-h", &creds.host,
+            "-P", &creds.port.to_string(),
+            "-u", &creds.username,
+            &format!("-p{}", creds.password),
+            "-e", sql,
+        ]);
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output().map_err(|e| e.to_string())?;
 
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -177,20 +186,23 @@ impl DatabaseManager {
         let file_name = format!("{}_{}.sql", timestamp, db_name);
         let file_path = project_backup_dir.join(&file_name);
 
-        let output = Command::new(&self.mysqldump_path)
-            .args([
-                "-h", &creds.host,
-                "-P", &creds.port.to_string(),
-                "-u", &creds.username,
-                &format!("-p{}", creds.password),
-                "--routines",
-                "--triggers",
-                "--single-transaction",
-                db_name,
-            ])
-            .stdout(Stdio::piped())
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = Command::new(&self.mysqldump_path);
+        cmd.args([
+            "-h", &creds.host,
+            "-P", &creds.port.to_string(),
+            "-u", &creds.username,
+            &format!("-p{}", creds.password),
+            "--routines",
+            "--triggers",
+            "--single-transaction",
+            db_name,
+        ])
+        .stdout(Stdio::piped());
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output().map_err(|e| e.to_string())?;
 
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
@@ -219,19 +231,22 @@ impl DatabaseManager {
 
         let sql_content = fs::read_to_string(backup_path).map_err(|e| e.to_string())?;
 
-        let mut child = Command::new(&self.mysql_path)
-            .args([
-                "-h", &creds.host,
-                "-P", &creds.port.to_string(),
-                "-u", &creds.username,
-                &format!("-p{}", creds.password),
-                db_name,
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = Command::new(&self.mysql_path);
+        cmd.args([
+            "-h", &creds.host,
+            "-P", &creds.port.to_string(),
+            "-u", &creds.username,
+            &format!("-p{}", creds.password),
+            db_name,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
 
         if let Some(mut stdin) = child.stdin.take() {
             use std::io::Write;
@@ -300,16 +315,19 @@ impl DatabaseManager {
     }
 
     pub fn test_credentials(&self, creds: &DatabaseCredentials) -> Result<bool, String> {
-        let output = Command::new(&self.mysql_path)
-            .args([
-                "-h", &creds.host,
-                "-P", &creds.port.to_string(),
-                "-u", &creds.username,
-                &format!("-p{}", creds.password),
-                "-e", "SELECT 1",
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = Command::new(&self.mysql_path);
+        cmd.args([
+            "-h", &creds.host,
+            "-P", &creds.port.to_string(),
+            "-u", &creds.username,
+            &format!("-p{}", creds.password),
+            "-e", "SELECT 1",
+        ]);
+
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output().map_err(|e| e.to_string())?;
 
         Ok(output.status.success())
     }

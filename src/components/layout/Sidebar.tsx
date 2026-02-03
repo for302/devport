@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Server,
   Settings,
+  Package,
 } from "lucide-react";
 import { useUiStore, useProjectStore, useProcessStore, useServiceStore } from "@/stores";
 
@@ -70,7 +71,7 @@ export function Sidebar() {
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-slate-800">
         {!sidebarCollapsed && (
-          <h1 className="text-lg font-bold text-white">DevPort</h1>
+          <img src="/logo.png" alt="ClickDevPort" className="h-8" />
         )}
         <button
           onClick={toggleSidebar}
@@ -118,6 +119,13 @@ export function Sidebar() {
           active={activeView === "settings"}
           collapsed={sidebarCollapsed}
           onClick={() => setActiveView("settings")}
+        />
+        <NavItem
+          icon={<Package size={20} />}
+          label="Installer"
+          active={activeView === "installer"}
+          collapsed={sidebarCollapsed}
+          onClick={() => setActiveView("installer")}
         />
       </nav>
 

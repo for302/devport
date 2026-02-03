@@ -5,3 +5,5 @@ export * from "./ports";
 export * from "./logs";
 export * from "./modals";
 export * from "./env";
+export * from "./apache";
+export * from "./installer";

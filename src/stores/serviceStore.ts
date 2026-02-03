@@ -156,6 +156,7 @@ export const useServiceStore = create<ServiceStore>()(
         });
       } catch (error) {
         console.error("Failed to fetch logs:", error);
+        throw error; // Re-throw so caller can handle it
       }
     },
 

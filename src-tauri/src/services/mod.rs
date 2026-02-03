@@ -1,6 +1,8 @@
+pub mod bundle_installer;
 pub mod bundler;
 pub mod credential_manager;
 pub mod database_manager;
+pub mod download_manager;
 pub mod env_manager;
 pub mod health_checker;
 pub mod hosts_manager;
@@ -17,7 +19,9 @@ pub mod storage;
 pub mod uninstaller;
 pub mod updater;
 
+pub use bundle_installer::{init_bundle_installer, BundleInstaller, SharedBundleInstaller};
 pub use database_manager::DatabaseManager;
+pub use download_manager::{init_download_manager, DownloadManager, SharedDownloadManager};
 pub use env_manager::EnvManager;
 pub use hosts_manager::HostsManager;
 pub use log_manager::{LogManager, LogStreamManager, LogUpdatePayload, SharedLogStreamManager};

@@ -8,6 +8,11 @@ export type ProjectType =
   | "angular"
   | "svelte"
   | "python"
+  | "pythontkinter"
+  | "pythonpyqt"
+  | "pythonwx"
+  | "pythonpygame"
+  | "pythonkivy"
   | "django"
   | "flask"
   | "fastapi"
@@ -55,4 +60,5 @@ export interface DetectedProjectInfo {
   name: string;
   startCommand: string;
   defaultPort: number;
+  venvPath: string | null;
 }

@@ -123,7 +123,7 @@ export function UpdateChecker() {
           <div>
             <p className="text-green-400 font-medium">You're up to date!</p>
             <p className="text-sm text-green-400/70">
-              DevPort Manager {currentVersion} is the latest version.
+              ClickDevPort {currentVersion} is the latest version.
             </p>
           </div>
         </div>

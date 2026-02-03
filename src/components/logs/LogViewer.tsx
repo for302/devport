@@ -1,5 +1,5 @@
-import { useEffect, useRef, useMemo } from "react";
-import { Trash2, Download } from "lucide-react";
+import { useEffect, useRef, useMemo, useState } from "react";
+import { Trash2, Download, AlertCircle, FileText } from "lucide-react";
 import { useLogStore, useProjectStore, useServiceStore } from "@/stores";
 
 interface LogViewerProps {
@@ -8,6 +8,12 @@ interface LogViewerProps {
 
 export function LogViewer({ projectId }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Debug logging
+  useEffect(() => {
+    console.log("[LogViewer] Rendering with projectId:", projectId);
+  }, [projectId]);
 
   // Check if this is a service or project
   const isService = projectId.startsWith("service:");
@@ -37,7 +43,14 @@ export function LogViewer({ projectId }: LogViewerProps) {
   // Fetch service logs on mount
   useEffect(() => {
     if (isService && serviceId) {
-      fetchServiceLogs(serviceId, "stdout", 200);
+      console.log("[LogViewer] Fetching service logs for:", serviceId);
+      setFetchError(null);
+      fetchServiceLogs(serviceId, "stdout", 200)
+        .then(() => console.log("[LogViewer] Service logs fetched successfully"))
+        .catch((err) => {
+          console.error("[LogViewer] Failed to fetch service logs:", err);
+          setFetchError(String(err));
+        });
     }
   }, [isService, serviceId, fetchServiceLogs]);
 
@@ -113,17 +126,36 @@ export function LogViewer({ projectId }: LogViewerProps) {
         ref={containerRef}
         className="flex-1 overflow-auto p-4 font-mono text-sm bg-slate-950"
       >
-        {logs.length === 0 ? (
-          <p className="text-slate-500 text-center py-8">
-            No logs yet. Start the {isService ? "service" : "project"} to see output.
-          </p>
+        {fetchError ? (
+          <div className="text-red-400 text-center py-8 flex flex-col items-center gap-2">
+            <AlertCircle size={32} />
+            <p>Failed to load logs</p>
+            <p className="text-sm text-slate-500">{fetchError}</p>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <FileText size={48} className="text-slate-600 mb-4" />
+            <p className="text-slate-400 font-medium mb-2">
+              No logs available
+            </p>
+            <p className="text-slate-500 text-sm max-w-xs">
+              {isService
+                ? "Start the service to see its output logs here."
+                : "Start the project to see its console output here. Logs are only available during the current session."}
+            </p>
+          </div>
         ) : (
           logs.map((log, index) => {
             // Handle both ProcessLog (projects) and LogEntry (services)
-            const text = "line" in log ? log.line : log.message;
+            const text = "line" in log ? log.line : ("message" in log ? log.message : "");
             const isError = "stream" in log
               ? log.stream === "stderr"
               : "level" in log && log.level === "error";
+
+            // Safe timestamp formatting
+            const timestamp = log.timestamp
+              ? new Date(log.timestamp).toLocaleTimeString()
+              : "--:--:--";
 
             return (
               <div
@@ -131,7 +163,7 @@ export function LogViewer({ projectId }: LogViewerProps) {
                 className={`py-0.5 ${isError ? "text-red-400" : "text-slate-300"}`}
               >
                 <span className="text-slate-600 mr-2">
-                  [{new Date(log.timestamp).toLocaleTimeString()}]
+                  [{timestamp}]
                 </span>
                 {text}
               </div>

@@ -25,10 +25,15 @@ const FRAMEWORK_OPTIONS = [
   { value: "node", label: "Node.js", category: "Node.js" },
   { value: "laravel", label: "Laravel", category: "PHP" },
   { value: "codeigniter", label: "CodeIgniter", category: "PHP" },
-  { value: "django", label: "Django", category: "Python" },
-  { value: "flask", label: "Flask", category: "Python" },
-  { value: "fastapi", label: "FastAPI", category: "Python" },
+  { value: "django", label: "Django", category: "Python Web" },
+  { value: "flask", label: "Flask", category: "Python Web" },
+  { value: "fastapi", label: "FastAPI", category: "Python Web" },
   { value: "python", label: "Python", category: "Python" },
+  { value: "pythontkinter", label: "Tkinter", category: "Python Desktop" },
+  { value: "pythonpyqt", label: "PyQt", category: "Python Desktop" },
+  { value: "pythonwx", label: "wxPython", category: "Python Desktop" },
+  { value: "pythonpygame", label: "Pygame", category: "Python Desktop" },
+  { value: "pythonkivy", label: "Kivy", category: "Python Desktop" },
   { value: "unknown", label: "Other", category: "Other" },
 ];
 
@@ -49,6 +54,11 @@ const DEFAULT_PORTS: Record<string, number> = {
   flask: 5000,
   fastapi: 8000,
   python: 8000,
+  pythontkinter: 0,
+  pythonpyqt: 0,
+  pythonwx: 0,
+  pythonpygame: 0,
+  pythonkivy: 0,
   unknown: 3000,
 };
 
@@ -69,8 +79,17 @@ const DEFAULT_COMMANDS: Record<string, string> = {
   flask: "flask run",
   fastapi: "uvicorn main:app --reload",
   python: "python main.py",
+  pythontkinter: "python main.py",
+  pythonpyqt: "python main.py",
+  pythonwx: "python main.py",
+  pythonpygame: "python main.py",
+  pythonkivy: "python main.py",
   unknown: "npm start",
 };
+
+const NO_PORT_TYPES: ProjectType[] = [
+  "pythontkinter", "pythonpyqt", "pythonwx", "pythonpygame", "pythonkivy",
+];
 
 export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
   const closeModal = useUiStore((state) => state.closeModal);
@@ -110,8 +129,10 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (port) {
+    if (port && parseInt(port, 10) > 0) {
       checkPortAvailability(parseInt(port, 10));
+    } else {
+      setPortAvailable(null);
     }
   }, [port]);
 
@@ -390,6 +411,7 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
           )}
 
           <div className="grid grid-cols-2 gap-4">
+            {!NO_PORT_TYPES.includes(projectType) ? (
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">
                 Port
@@ -420,6 +442,16 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
                 )}
               </div>
             </div>
+            ) : (
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Port
+              </label>
+              <div className="px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-slate-500 text-sm">
+                Not required (desktop app)
+              </div>
+            </div>
+            )}
 
             {!isEdit && (
               <div>

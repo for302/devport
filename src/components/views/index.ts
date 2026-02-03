@@ -3,3 +3,4 @@ export { ServicesView } from "./ServicesView";
 export { PortsView } from "./PortsView";
 export { LogsView } from "./LogsView";
 export { SettingsView } from "./SettingsView";
+export { InstallerView } from "./InstallerView";

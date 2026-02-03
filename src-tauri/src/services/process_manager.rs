@@ -7,6 +7,12 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Error, Debug)]
 pub enum ProcessError {
     #[error("Failed to start process: {0}")]
@@ -103,6 +109,11 @@ impl ProcessManager {
             ProjectType::Electron => {
                 start_command.to_string()
             }
+            // Python Desktop apps: No port needed
+            ProjectType::PythonTkinter | ProjectType::PythonPyQt | ProjectType::PythonWx
+            | ProjectType::PythonPygame | ProjectType::PythonKivy => {
+                start_command.to_string()
+            }
             // Node/Express: Uses PORT env variable (handled separately)
             ProjectType::Node | ProjectType::Express | ProjectType::Python | ProjectType::Unknown => {
                 start_command.to_string()
@@ -119,10 +130,33 @@ impl ProcessManager {
 
         // Build environment variables
         let mut env_vars = project.env_vars.clone();
-        env_vars.insert("PORT".to_string(), project.port.to_string());
+        // Only inject PORT for projects that use it (port > 0)
+        if project.port > 0 {
+            env_vars.insert("PORT".to_string(), project.port.to_string());
+        }
         // Flask-specific env var
         if matches!(project.project_type, ProjectType::Flask) {
             env_vars.insert("FLASK_RUN_PORT".to_string(), project.port.to_string());
+        }
+
+        // Set up venv environment variables if venv_path is present in env_vars
+        if let Some(venv_rel) = project.env_vars.get("DEVPORT_VENV_PATH") {
+            let project_path = std::path::Path::new(&project.path);
+            let venv_abs = project_path.join(venv_rel);
+            env_vars.insert("VIRTUAL_ENV".to_string(), venv_abs.to_string_lossy().to_string());
+
+            // Prepend venv bin/Scripts to PATH
+            #[cfg(windows)]
+            let venv_bin = venv_abs.join("Scripts");
+            #[cfg(not(windows))]
+            let venv_bin = venv_abs.join("bin");
+
+            if let Ok(current_path) = std::env::var("PATH") {
+                env_vars.insert(
+                    "PATH".to_string(),
+                    format!("{};{}", venv_bin.to_string_lossy(), current_path),
+                );
+            }
         }
 
         // Build command with port option
@@ -226,8 +260,15 @@ impl ProcessManager {
             let pid = child.id();
 
             // Kill the process tree on Windows
+            #[cfg(windows)]
             let _ = Command::new("taskkill")
                 .args(["/F", "/T", "/PID", &pid.to_string()])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+
+            #[cfg(not(windows))]
+            let _ = Command::new("kill")
+                .args(["-9", &pid.to_string()])
                 .output();
 
             // Also try to kill directly

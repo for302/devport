@@ -161,12 +161,12 @@ impl UninstallManager {
     fn get_basic_items(&self, total_size: &mut u64) -> Vec<UninstallPreviewItem> {
         let mut items = Vec::new();
 
-        // DevPortManager.exe
-        let exe_path = self.devport_path.join("DevPortManager.exe");
+        // ClickDevPort.exe
+        let exe_path = self.devport_path.join("ClickDevPort.exe");
         items.push(self.create_preview_item(
             UninstallItemType::Executable,
             Some(exe_path.to_string_lossy().to_string()),
-            "DevPortManager.exe".to_string(),
+            "ClickDevPort.exe".to_string(),
             total_size,
         ));
 
@@ -259,7 +259,7 @@ impl UninstallManager {
         items.push(UninstallPreviewItem {
             item_type: UninstallItemType::TaskScheduler,
             path: None,
-            name: "DevPort Manager Auto-Start task".to_string(),
+            name: "ClickDevPort Auto-Start task".to_string(),
             size_bytes: None,
             exists: self.check_task_scheduler_exists(),
         });
@@ -284,7 +284,7 @@ impl UninstallManager {
 
         // Start Menu shortcut
         let start_menu_path = dirs::data_dir()
-            .map(|p| p.join("Microsoft\\Windows\\Start Menu\\Programs\\DevPort Manager.lnk"));
+            .map(|p| p.join("Microsoft\\Windows\\Start Menu\\Programs\\ClickDevPort.lnk"));
         items.push(UninstallPreviewItem {
             item_type: UninstallItemType::Shortcut,
             path: start_menu_path.clone().map(|p| p.to_string_lossy().to_string()),
@@ -295,7 +295,7 @@ impl UninstallManager {
 
         // Desktop shortcut
         let desktop_path = dirs::desktop_dir()
-            .map(|p| p.join("DevPort Manager.lnk"));
+            .map(|p| p.join("ClickDevPort.lnk"));
         items.push(UninstallPreviewItem {
             item_type: UninstallItemType::Shortcut,
             path: desktop_path.clone().map(|p| p.to_string_lossy().to_string()),
@@ -369,10 +369,10 @@ impl UninstallManager {
         let mut removed_items = Vec::new();
         let mut failed_items = Vec::new();
 
-        // Remove DevPortManager.exe
+        // Remove ClickDevPort.exe
         self.remove_file(
-            &self.devport_path.join("DevPortManager.exe"),
-            "DevPortManager.exe",
+            &self.devport_path.join("ClickDevPort.exe"),
+            "ClickDevPort.exe",
             &mut removed_items,
             &mut failed_items,
         );
@@ -548,7 +548,7 @@ impl UninstallManager {
         removed: &mut Vec<RemovedItem>,
         failed: &mut Vec<FailedItem>,
     ) {
-        let task_name = "DevPort Manager Auto-Start";
+        let task_name = "ClickDevPort Auto-Start";
 
         let output = Command::new("schtasks")
             .args(["/delete", "/tn", task_name, "/f"])
@@ -765,7 +765,7 @@ impl UninstallManager {
         // Start Menu shortcut
         if let Some(start_menu_path) = dirs::data_dir() {
             let shortcut_path = start_menu_path
-                .join("Microsoft\\Windows\\Start Menu\\Programs\\DevPort Manager.lnk");
+                .join("Microsoft\\Windows\\Start Menu\\Programs\\ClickDevPort.lnk");
             self.remove_file(
                 &shortcut_path,
                 "Start Menu shortcut",
@@ -776,7 +776,7 @@ impl UninstallManager {
 
         // Desktop shortcut
         if let Some(desktop_path) = dirs::desktop_dir() {
-            let shortcut_path = desktop_path.join("DevPort Manager.lnk");
+            let shortcut_path = desktop_path.join("ClickDevPort.lnk");
             self.remove_file(
                 &shortcut_path,
                 "Desktop shortcut",
@@ -794,11 +794,11 @@ impl UninstallManager {
     ) {
         self.remove_directory(&self.appdata_path, "Application data", removed, failed);
 
-        // Also clean up devport-manager directory (used by some config files)
+        // Also clean up clickdevport directory (used by some config files)
         let devport_manager_path = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("devport-manager");
-        self.remove_directory(&devport_manager_path, "DevPort Manager config", removed, failed);
+            .join("clickdevport");
+        self.remove_directory(&devport_manager_path, "ClickDevPort config", removed, failed);
     }
 
     /// Helper to remove a file
@@ -867,7 +867,7 @@ impl UninstallManager {
     #[cfg(windows)]
     fn check_task_scheduler_exists(&self) -> bool {
         let output = Command::new("schtasks")
-            .args(["/query", "/tn", "DevPort Manager Auto-Start"])
+            .args(["/query", "/tn", "ClickDevPort Auto-Start"])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
 

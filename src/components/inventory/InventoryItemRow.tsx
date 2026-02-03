@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Lock,
   Globe,
+  Download,
 } from "lucide-react";
 import type { InventoryItem, ServiceInfo } from "@/types";
 import {
@@ -30,6 +31,7 @@ interface InventoryItemRowProps {
   onRestart?: () => void;
   onViewLogs?: () => void;
   onSettings?: () => void;
+  onInstall?: () => void;
   isLoading?: boolean;
   loadingAction?: "start" | "stop" | "restart" | null;
 }
@@ -42,6 +44,7 @@ export function InventoryItemRow({
   onRestart,
   onViewLogs,
   onSettings,
+  onInstall,
   isLoading = false,
   loadingAction = null,
 }: InventoryItemRowProps) {
@@ -266,8 +269,20 @@ export function InventoryItemRow({
           </div>
         )}
 
-        {/* Empty space for non-controllable items */}
-        {!isControllable && <div className="w-32 flex-shrink-0" />}
+        {/* Install button for non-installed items */}
+        {!item.isInstalled && onInstall && (
+          <button
+            onClick={onInstall}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+            title={`Install ${item.name}`}
+          >
+            <Download size={14} />
+            Install
+          </button>
+        )}
+
+        {/* Empty space for non-controllable installed items */}
+        {!isControllable && item.isInstalled && <div className="w-32 flex-shrink-0" />}
       </div>
 
       {/* Progress bar for loading state */}

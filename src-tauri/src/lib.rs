@@ -4,7 +4,10 @@ mod services;
 mod state;
 mod tray;
 
-use services::{DatabaseManager, LogManager, LogStreamManager, ServiceManager, init_project_watcher};
+use services::{
+    DatabaseManager, LogManager, LogStreamManager, ServiceManager, init_project_watcher,
+    init_bundle_installer, init_download_manager,
+};
 use state::AppState;
 use std::sync::Arc;
 use tauri::Manager;
@@ -18,6 +21,8 @@ pub fn run() {
     let log_stream_manager = Arc::new(RwLock::new(LogStreamManager::new(log_manager_instance.clone())));
     let log_manager = Arc::new(Mutex::new(log_manager_instance));
     let database_manager = Arc::new(Mutex::new(DatabaseManager::new()));
+    let bundle_installer = init_bundle_installer();
+    let download_manager = init_download_manager();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -28,6 +33,8 @@ pub fn run() {
         .manage(log_manager)
         .manage(log_stream_manager)
         .manage(database_manager)
+        .manage(bundle_installer)
+        .manage(download_manager)
         .setup(|app| {
             tray::setup_tray(app)?;
 
@@ -149,6 +156,15 @@ pub fn run() {
             commands::config::restore_config_backup,
             commands::config::validate_apache_config,
             commands::config::get_apache_ports,
+            // Apache VHost CRUD commands
+            commands::config::create_apache_vhost,
+            commands::config::update_apache_vhost,
+            commands::config::delete_apache_vhost,
+            commands::config::add_listen_port,
+            commands::config::remove_listen_port,
+            commands::config::check_document_root,
+            commands::config::create_document_root,
+            commands::config::get_apache_base_path,
             // Scaffold commands
             commands::scaffold::scaffold_project,
             commands::scaffold::install_dependencies,
@@ -203,6 +219,38 @@ pub fn run() {
             // Inventory commands
             commands::inventory::scan_inventory,
             commands::inventory::refresh_inventory_item,
+            // Installer commands
+            commands::installer::get_bundle_manifest,
+            commands::installer::get_install_presets,
+            commands::installer::get_components_by_category,
+            commands::installer::get_component_info,
+            commands::installer::get_installation_state,
+            commands::installer::select_install_preset,
+            commands::installer::toggle_component_selection,
+            commands::installer::get_installed_components,
+            commands::installer::is_component_installed,
+            commands::installer::install_selected_components,
+            commands::installer::install_component,
+            commands::installer::uninstall_component,
+            commands::installer::download_component_bundle,
+            commands::installer::has_component_bundle,
+            commands::installer::list_bundle_files,
+            commands::installer::get_bundle_storage_size,
+            commands::installer::delete_bundle_file,
+            commands::installer::cleanup_incomplete_downloads,
+            commands::installer::calculate_selection_size,
+            commands::installer::get_preset_components,
+            commands::installer::create_devport_directories,
+            commands::installer::get_installation_summary,
+            // Backup commands
+            commands::backup::get_config_path,
+            commands::backup::list_config_files,
+            commands::backup::create_backup,
+            commands::backup::restore_backup,
+            commands::backup::list_backups,
+            commands::backup::delete_backup,
+            commands::backup::open_backup_folder,
+            commands::backup::open_config_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

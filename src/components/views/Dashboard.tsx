@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { useProjectStore, useProcessStore } from "@/stores";
+import { useProjectStore, useProcessStore, useUiStore } from "@/stores";
 import { ProjectListItem } from "../projects/ProjectListItem";
 import { ServiceActivityLog } from "../services/ServiceActivityLog";
-import { Activity, Server, Zap, RefreshCw } from "lucide-react";
+import { ApachePortsManager } from "../apache/ApachePortsManager";
+import { Activity, Server, Zap, RefreshCw, Plus } from "lucide-react";
 
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -10,6 +11,7 @@ export function Dashboard() {
   const projects = useProjectStore((state) => state.projects);
   const fetchProjects = useProjectStore((state) => state.fetchProjects);
   const processes = useProcessStore((state) => state.processes);
+  const openModal = useUiStore((state) => state.openModal);
   const [isLogExpanded, setIsLogExpanded] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -75,22 +77,38 @@ export function Dashboard() {
       {/* Projects List */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-white">Projects</h2>
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded transition-colors disabled:opacity-50"
-          title="Refresh projects"
-        >
-          <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded transition-colors disabled:opacity-50"
+            title="Refresh projects"
+          >
+            <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+          </button>
+          <button
+            onClick={() => openModal("addProject")}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Plus size={16} />
+            Add Project
+          </button>
+        </div>
       </div>
       {projects.length === 0 ? (
         <div className="text-center py-12 bg-slate-800 rounded-lg border border-slate-700">
           <Server size={48} className="mx-auto text-slate-600 mb-4" />
           <h3 className="text-lg font-medium text-slate-400 mb-2">No projects yet</h3>
-          <p className="text-sm text-slate-500">
-            Click "Add Project" to get started
+          <p className="text-sm text-slate-500 mb-4">
+            Add your first project to get started
           </p>
+          <button
+            onClick={() => openModal("addProject")}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+          >
+            <Plus size={18} />
+            Add Project
+          </button>
         </div>
       ) : (
         <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
@@ -115,6 +133,9 @@ export function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Apache VirtualHosts Section */}
+      <ApachePortsManager compact />
       </div>
 
       {/* Fixed Activity Log panel at bottom */}

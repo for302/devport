@@ -31,6 +31,7 @@ import {
   type LanguageCode,
   type LogFileSizeOption,
 } from "@/types/settings";
+import { BackupPanel } from "../settings/BackupPanel";
 
 export function SettingsView() {
   const {
@@ -134,7 +135,7 @@ export function SettingsView() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">Settings</h1>
           <p className="text-slate-400 mt-1">
-            Configure DevPort Manager preferences
+            Configure ClickDevPort preferences
           </p>
         </div>
 
@@ -275,7 +276,7 @@ export function SettingsView() {
                 <div>
                   <span className="text-white">Start DevPort when Windows starts</span>
                   <p className="text-sm text-slate-400">
-                    Automatically launch DevPort Manager when you log into Windows
+                    Automatically launch ClickDevPort when you log into Windows
                   </p>
                 </div>
               </label>
@@ -700,6 +701,9 @@ export function SettingsView() {
               </div>
             </div>
           </section>
+
+          {/* Backup & Restore */}
+          <BackupPanel />
 
           {/* About */}
           <section className="bg-slate-900 border border-slate-800 rounded-lg p-6">

@@ -13,12 +13,14 @@ pub enum DetectorError {
     PathNotFound(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DetectedProject {
     pub project_type: ProjectType,
     pub name: String,
     pub start_command: String,
     pub default_port: u16,
+    pub venv_path: Option<String>,
 }
 
 pub struct ProjectDetector;
@@ -160,6 +162,12 @@ impl ProjectDetector {
             return Self::detect_python_project(path);
         }
 
+        // Check for Python .py files (even without requirements.txt)
+        let has_py_files = path.join("main.py").exists() || path.join("app.py").exists();
+        if has_py_files {
+            return Self::detect_python_project(path);
+        }
+
         // Default unknown
         Ok(DetectedProject {
             project_type: ProjectType::Unknown,
@@ -169,6 +177,7 @@ impl ProjectDetector {
                 .unwrap_or_else(|| "Unknown".to_string()),
             start_command: String::new(),
             default_port: 3000,
+            venv_path: None,
         })
     }
 
@@ -217,6 +226,7 @@ impl ProjectDetector {
                 name,
                 start_command: start_cmd.to_string(),
                 default_port,
+                venv_path: None,
             });
         }
 
@@ -247,6 +257,7 @@ impl ProjectDetector {
                 name,
                 start_command: start_cmd.to_string(),
                 default_port,
+                venv_path: None,
             });
         }
 
@@ -264,6 +275,7 @@ impl ProjectDetector {
                 name,
                 start_command: start_cmd.to_string(),
                 default_port,
+                venv_path: None,
             });
         }
 
@@ -287,6 +299,7 @@ impl ProjectDetector {
                 name,
                 start_command: "npm run dev".to_string(),
                 default_port,
+                venv_path: None,
             });
         }
 
@@ -299,6 +312,7 @@ impl ProjectDetector {
                 name,
                 start_command: "npm start".to_string(),
                 default_port: 4200,
+                venv_path: None,
             });
         }
 
@@ -309,6 +323,7 @@ impl ProjectDetector {
                 name,
                 start_command: "npm run serve".to_string(),
                 default_port: 8080,
+                venv_path: None,
             });
         }
 
@@ -319,6 +334,7 @@ impl ProjectDetector {
                 name,
                 start_command: "npm start".to_string(),
                 default_port: 3000,
+                venv_path: None,
             });
         }
 
@@ -329,6 +345,7 @@ impl ProjectDetector {
                 name,
                 start_command: "npm start".to_string(),
                 default_port: 3000,
+                venv_path: None,
             });
         }
 
@@ -338,7 +355,112 @@ impl ProjectDetector {
             name,
             start_command: "npm start".to_string(),
             default_port: 3000,
+            venv_path: None,
         })
+    }
+
+    /// Detect venv directory in project path
+    fn detect_venv(path: &Path) -> Option<String> {
+        for venv_dir in &["venv", ".venv", "env"] {
+            let venv_path = path.join(venv_dir);
+            // Check for Windows venv structure
+            if venv_path.join("Scripts").join("python.exe").exists() {
+                return Some(venv_dir.to_string());
+            }
+            // Check for Unix venv structure
+            if venv_path.join("bin").join("python").exists() {
+                return Some(venv_dir.to_string());
+            }
+        }
+        None
+    }
+
+    /// Detect Flask start command by analyzing app.py/main.py patterns
+    /// Returns "python app.py" if `if __name__ == "__main__"` + `.run(` pattern exists
+    /// Otherwise returns "flask run"
+    fn detect_flask_start_command(project_path: &Path, venv: &Option<String>) -> String {
+        // Check app.py first
+        let app_py = project_path.join("app.py");
+        if app_py.exists() {
+            if let Ok(content) = fs::read_to_string(&app_py) {
+                // Check for if __name__ == "__main__" pattern and .run() call
+                if content.contains("if __name__")
+                    && content.contains("__main__")
+                    && content.contains(".run(")
+                {
+                    return Self::python_command(venv, "app.py");
+                }
+            }
+        }
+
+        // Check main.py as fallback
+        let main_py = project_path.join("main.py");
+        if main_py.exists() {
+            if let Ok(content) = fs::read_to_string(&main_py) {
+                if content.contains("if __name__")
+                    && content.contains("__main__")
+                    && content.contains(".run(")
+                {
+                    return Self::python_command(venv, "main.py");
+                }
+            }
+        }
+
+        // Default to flask run
+        "flask run".to_string()
+    }
+
+    /// Build python command using venv if available
+    fn python_command(venv: &Option<String>, script: &str) -> String {
+        match venv {
+            Some(venv_dir) => {
+                if cfg!(windows) {
+                    format!("{}\\Scripts\\python.exe {}", venv_dir, script)
+                } else {
+                    format!("{}/bin/python {}", venv_dir, script)
+                }
+            }
+            None => format!("python {}", script),
+        }
+    }
+
+    /// Scan .py files for GUI framework imports
+    fn scan_py_imports(path: &Path) -> Option<ProjectType> {
+        let py_files = ["main.py", "app.py", "gui.py", "window.py", "game.py"];
+        let mut all_content = String::new();
+
+        for py_file in &py_files {
+            let file_path = path.join(py_file);
+            if file_path.exists() {
+                if let Ok(content) = fs::read_to_string(&file_path) {
+                    all_content.push_str(&content);
+                    all_content.push('\n');
+                }
+            }
+        }
+
+        if all_content.is_empty() {
+            return None;
+        }
+
+        // Check for GUI framework imports (order matters - more specific first)
+        if all_content.contains("import pygame") || all_content.contains("from pygame") {
+            return Some(ProjectType::PythonPygame);
+        }
+        if all_content.contains("import kivy") || all_content.contains("from kivy") {
+            return Some(ProjectType::PythonKivy);
+        }
+        if all_content.contains("PyQt5") || all_content.contains("PyQt6") || all_content.contains("PySide6") || all_content.contains("PySide2") {
+            return Some(ProjectType::PythonPyQt);
+        }
+        if all_content.contains("import wx") || all_content.contains("from wx") {
+            return Some(ProjectType::PythonWx);
+        }
+        if all_content.contains("import tkinter") || all_content.contains("from tkinter") {
+            return Some(ProjectType::PythonTkinter);
+        }
+
+        None
     }
 
     fn detect_python_project(path: &Path) -> Result<DetectedProject, DetectorError> {
@@ -354,45 +476,142 @@ impl ProjectDetector {
             String::new()
         };
 
+        let pyproject_path = path.join("pyproject.toml");
+        let pyproject = if pyproject_path.exists() {
+            fs::read_to_string(&pyproject_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        let deps_content = format!("{}\n{}", requirements, pyproject);
+
+        // Detect venv
+        let venv = Self::detect_venv(path);
+
         // Check for Django
-        if requirements.contains("django") || requirements.contains("Django") {
+        if deps_content.contains("django") || deps_content.contains("Django") {
             let manage_py = path.join("manage.py");
             if manage_py.exists() {
+                let cmd = match &venv {
+                    Some(v) => {
+                        if cfg!(windows) {
+                            format!("{}\\Scripts\\python.exe manage.py runserver", v)
+                        } else {
+                            format!("{}/bin/python manage.py runserver", v)
+                        }
+                    }
+                    None => "python manage.py runserver".to_string(),
+                };
                 return Ok(DetectedProject {
                     project_type: ProjectType::Django,
                     name,
-                    start_command: "python manage.py runserver".to_string(),
+                    start_command: cmd,
                     default_port: 8000,
+                    venv_path: venv,
                 });
             }
         }
 
         // Check for FastAPI
-        if requirements.contains("fastapi") {
+        if deps_content.contains("fastapi") {
             return Ok(DetectedProject {
                 project_type: ProjectType::FastApi,
                 name,
                 start_command: "uvicorn main:app --reload".to_string(),
                 default_port: 8000,
+                venv_path: venv,
             });
         }
 
         // Check for Flask
-        if requirements.contains("flask") || requirements.contains("Flask") {
+        if deps_content.contains("flask") || deps_content.contains("Flask") {
+            // Detect start command based on app.py pattern
+            let start_command = Self::detect_flask_start_command(path, &venv);
+
             return Ok(DetectedProject {
                 project_type: ProjectType::Flask,
                 name,
-                start_command: "flask run".to_string(),
+                start_command,
                 default_port: 5000,
+                venv_path: venv,
+            });
+        }
+
+        // Check for GUI frameworks in requirements/pyproject
+        if deps_content.contains("pygame") {
+            let entry = if path.join("main.py").exists() { "main.py" } else { "game.py" };
+            return Ok(DetectedProject {
+                project_type: ProjectType::PythonPygame,
+                name,
+                start_command: Self::python_command(&venv, entry),
+                default_port: 0,
+                venv_path: venv,
+            });
+        }
+        if deps_content.contains("kivy") {
+            return Ok(DetectedProject {
+                project_type: ProjectType::PythonKivy,
+                name,
+                start_command: Self::python_command(&venv, "main.py"),
+                default_port: 0,
+                venv_path: venv,
+            });
+        }
+        if deps_content.contains("PyQt5") || deps_content.contains("PyQt6")
+            || deps_content.contains("PySide6") || deps_content.contains("PySide2")
+        {
+            return Ok(DetectedProject {
+                project_type: ProjectType::PythonPyQt,
+                name,
+                start_command: Self::python_command(&venv, "main.py"),
+                default_port: 0,
+                venv_path: venv,
+            });
+        }
+        if deps_content.contains("wxPython") || deps_content.contains("wxpython") {
+            return Ok(DetectedProject {
+                project_type: ProjectType::PythonWx,
+                name,
+                start_command: Self::python_command(&venv, "main.py"),
+                default_port: 0,
+                venv_path: venv,
+            });
+        }
+
+        // Scan .py files for import-based detection (e.g., tkinter is built-in)
+        if let Some(gui_type) = Self::scan_py_imports(path) {
+            let entry = if path.join("main.py").exists() {
+                "main.py"
+            } else if path.join("app.py").exists() {
+                "app.py"
+            } else if path.join("gui.py").exists() {
+                "gui.py"
+            } else {
+                "main.py"
+            };
+            return Ok(DetectedProject {
+                project_type: gui_type,
+                name,
+                start_command: Self::python_command(&venv, entry),
+                default_port: 0,
+                venv_path: venv,
             });
         }
 
         // Default Python
+        let entry = if path.join("main.py").exists() {
+            "main.py"
+        } else if path.join("app.py").exists() {
+            "app.py"
+        } else {
+            "main.py"
+        };
         Ok(DetectedProject {
             project_type: ProjectType::Python,
             name,
-            start_command: "python main.py".to_string(),
+            start_command: Self::python_command(&venv, entry),
             default_port: 8000,
+            venv_path: venv,
         })
     }
 }

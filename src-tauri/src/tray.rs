@@ -23,7 +23,7 @@ pub fn setup_tray<R: Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std::er
     let _tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .menu(&menu)
-        .tooltip("DevPort Manager")
+        .tooltip("ClickDevPort")
         .on_menu_event(move |app, event| {
             handle_menu_event(app, event.id.as_ref());
         })
@@ -100,9 +100,9 @@ pub async fn update_tray_status<R: Runtime>(app: &AppHandle<R>) {
         // Get the tray icon and update tooltip based on status
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
             let tooltip = if any_running {
-                "DevPort Manager - Services Running"
+                "ClickDevPort - Services Running"
             } else {
-                "DevPort Manager - No Services Running"
+                "ClickDevPort - No Services Running"
             };
             let _ = tray.set_tooltip(Some(tooltip));
         }

@@ -21,11 +21,11 @@ pub struct CredentialManager {
 
 impl CredentialManager {
     /// Creates a new CredentialManager instance.
-    /// The credentials are stored in %APPDATA%/devport-manager/credentials/
+    /// The credentials are stored in %APPDATA%/clickdevport/credentials/
     pub fn new() -> Result<Self, String> {
         let credentials_dir = dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("devport-manager")
+            .join("clickdevport")
             .join("credentials");
 
         fs::create_dir_all(&credentials_dir)

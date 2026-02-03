@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// GitHub repository configuration for update checking
 const GITHUB_OWNER: &str = "anthropics";
-const GITHUB_REPO: &str = "devport-manager";
+const GITHUB_REPO: &str = "clickdevport";
 
 #[derive(Error, Debug)]
 pub enum UpdateError {
@@ -87,7 +87,7 @@ impl UpdateManager {
     /// Create a new UpdateManager instance
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
-            .user_agent(format!("DevPort-Manager/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("ClickDevPort/{}", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
@@ -102,7 +102,7 @@ impl UpdateManager {
     /// Create UpdateManager with custom repository
     pub fn with_repo(owner: &str, repo: &str) -> Self {
         let client = reqwest::Client::builder()
-            .user_agent(format!("DevPort-Manager/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("ClickDevPort/{}", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
@@ -248,7 +248,7 @@ impl UpdateManager {
         let file_name = update_info
             .asset_name
             .clone()
-            .unwrap_or_else(|| format!("devport-manager-{}.exe", update_info.version));
+            .unwrap_or_else(|| format!("clickdevport-{}.exe", update_info.version));
 
         let file_path = download_dir.join(&file_name);
 

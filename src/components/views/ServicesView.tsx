@@ -11,10 +11,11 @@ import {
   Search,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { useInventoryStore, useServiceStore, useActivityLogStore } from "@/stores";
+import { useInventoryStore, useServiceStore, useActivityLogStore, useInstallerStore } from "@/stores";
 import { InventorySection } from "@/components/inventory";
 import { ServiceLogViewer, ServiceActivityLog } from "@/components/services";
-import { CATEGORY_META, type InventoryCategory } from "@/types";
+import { InstallModal } from "@/components/installer";
+import { CATEGORY_META, type InventoryCategory, type ComponentInfo } from "@/types";
 
 interface PhpMyAdminStatus {
   isAvailable: boolean;
@@ -54,6 +55,10 @@ export function ServicesView() {
     serviceName: string;
   } | null>(null);
   const [isActivityLogExpanded, setIsActivityLogExpanded] = useState(true);
+  const [installModalState, setInstallModalState] = useState<{
+    isOpen: boolean;
+    component: ComponentInfo | null;
+  }>({ isOpen: false, component: null });
 
   const {
     inventory,
@@ -77,6 +82,11 @@ export function ServicesView() {
 
   const { addLog } = useActivityLogStore();
 
+  const {
+    categoryGroups,
+    fetchCategoryGroups,
+  } = useInstallerStore();
+
   const checkPhpMyAdminStatus = async () => {
     setIsCheckingPhpMyAdmin(true);
     try {
@@ -91,11 +101,14 @@ export function ServicesView() {
   };
 
   useEffect(() => {
-    scanInventory();
+    // Only scan if inventory data doesn't exist yet
+    if (!inventory) {
+      scanInventory();
+      addLog("System", "Development environment scan started", "info");
+    }
     fetchServices();
-    // Add initial log
-    addLog("System", "Development environment scan started", "info");
-  }, [scanInventory, fetchServices, addLog]);
+    fetchCategoryGroups();
+  }, [inventory, scanInventory, fetchServices, fetchCategoryGroups, addLog]);
 
   // Check phpMyAdmin status when Apache is running
   useEffect(() => {
@@ -188,6 +201,36 @@ export function ServicesView() {
     // TODO: Open settings modal for the service
     console.log("Open settings for service:", serviceId);
   }, [addLog]);
+
+  const handleInstallItem = useCallback((itemId: string, itemName: string) => {
+    // Find the component info from categoryGroups
+    let componentInfo: ComponentInfo | null = null;
+    for (const group of categoryGroups) {
+      const found = group.components.find((c) => c.id === itemId);
+      if (found) {
+        componentInfo = found;
+        break;
+      }
+    }
+
+    if (componentInfo) {
+      setInstallModalState({ isOpen: true, component: componentInfo });
+      addLog("Installer", `Opening installer for ${itemName}...`, "info");
+    } else {
+      addLog("Installer", `Component ${itemName} not found in manifest`, "warning");
+    }
+  }, [categoryGroups, addLog]);
+
+  const handleCloseInstallModal = useCallback(() => {
+    setInstallModalState({ isOpen: false, component: null });
+  }, []);
+
+  const handleInstallComplete = useCallback(() => {
+    // Refresh inventory after install
+    scanInventory();
+    fetchCategoryGroups();
+    addLog("Installer", "Installation completed, refreshing inventory...", "success");
+  }, [scanInventory, fetchCategoryGroups, addLog]);
 
   const apacheService = services.find((s) => s.id === "apache");
   const isApacheRunning = apacheService?.status === "running";
@@ -328,6 +371,7 @@ export function ServicesView() {
                   onRestartService={handleRestartService}
                   onViewLogs={handleViewLogs}
                   onSettings={handleSettings}
+                  onInstallItem={handleInstallItem}
                 />
               ))}
             </div>
@@ -451,6 +495,16 @@ export function ServicesView() {
           serviceId={logViewerState.serviceId}
           serviceName={logViewerState.serviceName}
           onClose={handleCloseLogViewer}
+        />
+      )}
+
+      {/* Install Modal */}
+      {installModalState.isOpen && installModalState.component && (
+        <InstallModal
+          component={installModalState.component}
+          isOpen={installModalState.isOpen}
+          onClose={handleCloseInstallModal}
+          onInstallComplete={handleInstallComplete}
         />
       )}
     </div>
