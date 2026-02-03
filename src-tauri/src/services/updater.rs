@@ -1,9 +1,12 @@
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
 use thiserror::Error;
+use tokio::io::AsyncWriteExt;
 
 /// GitHub repository configuration for update checking
-const GITHUB_OWNER: &str = "anthropics";
-const GITHUB_REPO: &str = "clickdevport";
+const GITHUB_OWNER: &str = "for302";
+const GITHUB_REPO: &str = "devport";
 
 #[derive(Error, Debug)]
 pub enum UpdateError {
@@ -87,7 +90,7 @@ impl UpdateManager {
     /// Create a new UpdateManager instance
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
-            .user_agent(format!("ClickDevPort/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("DevPortManager/{}", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
@@ -102,7 +105,7 @@ impl UpdateManager {
     /// Create UpdateManager with custom repository
     pub fn with_repo(owner: &str, repo: &str) -> Self {
         let client = reqwest::Client::builder()
-            .user_agent(format!("ClickDevPort/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("DevPortManager/{}", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
@@ -248,7 +251,7 @@ impl UpdateManager {
         let file_name = update_info
             .asset_name
             .clone()
-            .unwrap_or_else(|| format!("clickdevport-{}.exe", update_info.version));
+            .unwrap_or_else(|| format!("devport-manager-{}.exe", update_info.version));
 
         let file_path = download_dir.join(&file_name);
 
@@ -272,6 +275,78 @@ impl UpdateManager {
             .map_err(|e| UpdateError::DownloadError(e.to_string()))?;
 
         tokio::fs::write(&file_path, &bytes)
+            .await
+            .map_err(|e| UpdateError::IoError(e.to_string()))?;
+
+        Ok(file_path.to_string_lossy().to_string())
+    }
+
+    /// Download the update with progress reporting via Tauri events
+    pub async fn download_update_with_progress(
+        &self,
+        update_info: &UpdateInfo,
+        app_handle: &tauri::AppHandle,
+    ) -> Result<String, UpdateError> {
+        let download_dir = dirs::download_dir()
+            .or_else(dirs::home_dir)
+            .ok_or_else(|| UpdateError::IoError("Could not find download directory".to_string()))?;
+
+        let file_name = update_info
+            .asset_name
+            .clone()
+            .unwrap_or_else(|| format!("devport-manager-{}.exe", update_info.version));
+
+        let file_path = download_dir.join(&file_name);
+
+        let response = self
+            .client
+            .get(&update_info.download_url)
+            .send()
+            .await
+            .map_err(|e| UpdateError::DownloadError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(UpdateError::DownloadError(format!(
+                "Download failed with status: {}",
+                response.status()
+            )));
+        }
+
+        let total_size = response.content_length().unwrap_or(0);
+        let mut downloaded: u64 = 0;
+        let mut file = tokio::fs::File::create(&file_path)
+            .await
+            .map_err(|e| UpdateError::IoError(e.to_string()))?;
+
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| UpdateError::DownloadError(e.to_string()))?;
+
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| UpdateError::IoError(e.to_string()))?;
+
+            downloaded += chunk.len() as u64;
+
+            let percentage = if total_size > 0 {
+                (downloaded as f64 / total_size as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            let progress = DownloadProgress {
+                downloaded_bytes: downloaded,
+                total_bytes: total_size,
+                percentage,
+            };
+
+            // Emit progress event (ignore errors)
+            let _ = app_handle.emit("download-progress", &progress);
+        }
+
+        // Ensure file is fully written
+        file.flush()
             .await
             .map_err(|e| UpdateError::IoError(e.to_string()))?;
 

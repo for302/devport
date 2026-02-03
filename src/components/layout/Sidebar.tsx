@@ -10,6 +10,7 @@ import {
   Package,
 } from "lucide-react";
 import { useUiStore, useProjectStore, useProcessStore, useServiceStore } from "@/stores";
+import { ServiceQuickControls } from "../services/ServiceQuickControls";
 
 interface NavItemProps {
   icon: React.ReactNode;
@@ -69,10 +70,13 @@ export function Sidebar() {
       `}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-800">
-        {!sidebarCollapsed && (
+      <div className={`flex items-center border-b border-slate-800 ${sidebarCollapsed ? "flex-col gap-2 p-3" : "justify-between p-4"}`}>
+        <div className="flex items-center gap-2">
           <img src="/logo.png" alt="ClickDevPort" className="h-8" />
-        )}
+          {!sidebarCollapsed && (
+            <span className="text-lg font-bold text-white">ClickDevPort</span>
+          )}
+        </div>
         <button
           onClick={toggleSidebar}
           className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200"
@@ -128,6 +132,11 @@ export function Sidebar() {
           onClick={() => setActiveView("installer")}
         />
       </nav>
+
+      {/* Service Quick Controls */}
+      <div className="px-2 py-2 border-t border-slate-800">
+        <ServiceQuickControls collapsed={sidebarCollapsed} />
+      </div>
 
       {/* Projects count */}
       {!sidebarCollapsed && (

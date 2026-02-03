@@ -16,3 +16,11 @@ export {
   useInstallerProgress,
   useInstallerSummary,
 } from "./installerStore";
+export {
+  useUpdaterStore,
+  useUpdateStatus,
+  useUpdateCheckResult,
+  useDownloadProgress,
+  useIsUpdateAvailable,
+  useIsUpdateReady,
+} from "./updaterStore";

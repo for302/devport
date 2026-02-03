@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Globe, FolderOpen, Edit, Trash2, Lock, ExternalLink, Folder } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ApachePortEntry } from "@/types";
@@ -9,6 +10,32 @@ interface ApachePortListItemProps {
 }
 
 export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListItemProps) {
+  const [siteTitle, setSiteTitle] = useState<string | null>(null);
+
+  // Fetch site title from index file
+  useEffect(() => {
+    const fetchTitle = async () => {
+      try {
+        const title = await invoke<string | null>("get_site_title", {
+          documentRoot: entry.documentRoot,
+        });
+        setSiteTitle(title);
+      } catch (error) {
+        console.error("Failed to fetch site title:", error);
+      }
+    };
+
+    // Only fetch if domain is localhost or generic
+    if (entry.domain === "localhost" || entry.domain === "127.0.0.1") {
+      fetchTitle();
+    }
+  }, [entry.documentRoot, entry.domain]);
+
+  // Display name: site title if available, otherwise domain
+  const displayName = (entry.domain === "localhost" || entry.domain === "127.0.0.1")
+    ? siteTitle || entry.domain
+    : entry.domain;
+
   const handleOpenBrowser = async () => {
     try {
       await invoke("open_in_browser", { url: entry.url });
@@ -53,10 +80,13 @@ export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListIt
         {entry.framework}
       </span>
 
-      {/* Name - Domain */}
+      {/* Name - Domain or Site Title */}
       <div className="w-32 min-w-[8rem] flex-shrink-0">
-        <h3 className="font-medium text-white truncate" title={entry.domain}>
-          {entry.domain}
+        <h3
+          className={`font-medium truncate ${siteTitle ? "text-white" : "text-slate-400"}`}
+          title={siteTitle ? `${siteTitle} (${entry.domain})` : entry.domain}
+        >
+          {displayName}
         </h3>
       </div>
 

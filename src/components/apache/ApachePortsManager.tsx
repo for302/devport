@@ -5,11 +5,8 @@ import {
   AlertTriangle,
   Server,
   Loader2,
-  Play,
-  Square,
-  RotateCcw,
 } from "lucide-react";
-import { useApacheConfigStore, useServiceStore, useActivityLogStore } from "@/stores";
+import { useApacheConfigStore, useServiceStore } from "@/stores";
 import { ApachePortListItem } from "./ApachePortListItem";
 import { ApachePortModal } from "./ApachePortModal";
 import type { ApachePortEntry } from "@/types";
@@ -31,14 +28,9 @@ export function ApachePortsManager({ compact = false }: ApachePortsManagerProps)
     clearError,
   } = useApacheConfigStore();
 
-  const { services, startService, stopService, restartService } = useServiceStore();
-  const { addLog } = useActivityLogStore();
+  const services = useServiceStore((state) => state.services);
   const apacheService = services.find((s) => s.id === "apache");
   const isApacheRunning = apacheService?.status === "running";
-  const isApacheInstalled = !!apacheService;
-
-  const [isServiceLoading, setIsServiceLoading] = useState(false);
-  const [serviceAction, setServiceAction] = useState<"start" | "stop" | "restart" | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<ApachePortEntry | null>(null);
@@ -54,53 +46,6 @@ export function ApachePortsManager({ compact = false }: ApachePortsManagerProps)
     fetchPorts();
     setNeedsRestart(false);
   }, [fetchPorts, setNeedsRestart]);
-
-  const handleStartApache = useCallback(async () => {
-    setIsServiceLoading(true);
-    setServiceAction("start");
-    addLog("Apache", "Starting service...", "info");
-    try {
-      await startService("apache");
-      addLog("Apache", "Service started successfully", "success");
-      setNeedsRestart(false);
-    } catch (err) {
-      addLog("Apache", `Failed to start: ${err}`, "error");
-    } finally {
-      setIsServiceLoading(false);
-      setServiceAction(null);
-    }
-  }, [startService, addLog, setNeedsRestart]);
-
-  const handleStopApache = useCallback(async () => {
-    setIsServiceLoading(true);
-    setServiceAction("stop");
-    addLog("Apache", "Stopping service...", "info");
-    try {
-      await stopService("apache");
-      addLog("Apache", "Service stopped successfully", "success");
-    } catch (err) {
-      addLog("Apache", `Failed to stop: ${err}`, "error");
-    } finally {
-      setIsServiceLoading(false);
-      setServiceAction(null);
-    }
-  }, [stopService, addLog]);
-
-  const handleRestartApache = useCallback(async () => {
-    setIsServiceLoading(true);
-    setServiceAction("restart");
-    addLog("Apache", "Restarting service...", "info");
-    try {
-      await restartService("apache");
-      addLog("Apache", "Service restarted successfully", "success");
-      setNeedsRestart(false);
-    } catch (err) {
-      addLog("Apache", `Failed to restart: ${err}`, "error");
-    } finally {
-      setIsServiceLoading(false);
-      setServiceAction(null);
-    }
-  }, [restartService, addLog, setNeedsRestart]);
 
   const handleAdd = () => {
     setEditEntry(null);
@@ -162,68 +107,6 @@ export function ApachePortsManager({ compact = false }: ApachePortsManagerProps)
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-white">Apache VirtualHosts</h2>
-
-          {/* Apache Service Control Buttons */}
-          {isApacheInstalled && (
-            <div className="flex items-center gap-1 px-2 py-1 bg-slate-800 rounded-lg border border-slate-700">
-              {isServiceLoading ? (
-                <div className="flex items-center gap-2 px-2">
-                  <Loader2 size={14} className="text-yellow-400 animate-spin" />
-                  <span className="text-xs text-yellow-400">
-                    {serviceAction === "start" ? "Starting..." :
-                     serviceAction === "stop" ? "Stopping..." : "Restarting..."}
-                  </span>
-                </div>
-              ) : isApacheRunning ? (
-                <>
-                  {/* Restart button - only when running */}
-                  <button
-                    onClick={handleRestartApache}
-                    disabled={isServiceLoading}
-                    className="p-1.5 rounded hover:bg-slate-700 text-yellow-400 hover:text-yellow-300 transition-colors disabled:opacity-50"
-                    title="Restart Apache"
-                  >
-                    <RotateCcw size={16} />
-                  </button>
-                  {/* Stop button - enabled when running */}
-                  <button
-                    onClick={handleStopApache}
-                    disabled={isServiceLoading}
-                    className="p-1.5 rounded hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                    title="Stop Apache"
-                  >
-                    <Square size={16} />
-                  </button>
-                  <span className="ml-1 px-1.5 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">
-                    Running
-                  </span>
-                </>
-              ) : (
-                <>
-                  {/* Play button - only when stopped */}
-                  <button
-                    onClick={handleStartApache}
-                    disabled={isServiceLoading}
-                    className="p-1.5 rounded hover:bg-green-500/20 text-green-400 hover:text-green-300 transition-colors disabled:opacity-50"
-                    title="Start Apache"
-                  >
-                    <Play size={16} />
-                  </button>
-                  {/* Stop button - disabled when stopped */}
-                  <button
-                    disabled
-                    className="p-1.5 rounded text-slate-600 cursor-not-allowed"
-                    title="Not running"
-                  >
-                    <Square size={16} />
-                  </button>
-                  <span className="ml-1 px-1.5 py-0.5 bg-slate-700 text-slate-400 text-xs rounded">
-                    Stopped
-                  </span>
-                </>
-              )}
-            </div>
-          )}
 
           {needsRestart && isApacheRunning && (
             <span className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full">

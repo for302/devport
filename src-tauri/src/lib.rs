@@ -165,6 +165,7 @@ pub fn run() {
             commands::config::check_document_root,
             commands::config::create_document_root,
             commands::config::get_apache_base_path,
+            commands::config::get_site_title,
             // Scaffold commands
             commands::scaffold::scaffold_project,
             commands::scaffold::install_dependencies,
@@ -201,8 +202,10 @@ pub fn run() {
             commands::updater::check_for_updates,
             commands::updater::get_current_version,
             commands::updater::download_update,
+            commands::updater::download_update_with_progress,
             commands::updater::get_releases_url,
             commands::updater::install_update,
+            commands::updater::install_update_and_quit,
             // Bundler commands
             commands::bundler::check_bundle_status,
             commands::bundler::get_bundle_versions,

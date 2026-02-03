@@ -1,4 +1,5 @@
 use crate::services::updater::{UpdateCheckResult, UpdateInfo, UpdateManager};
+use tauri::Manager;
 
 /// Check for available updates
 #[tauri::command]
@@ -19,6 +20,19 @@ pub async fn download_update(update_info: UpdateInfo) -> Result<String, String> 
     let manager = UpdateManager::new();
     manager
         .download_update(&update_info)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Download the update with progress reporting via events
+#[tauri::command]
+pub async fn download_update_with_progress(
+    update_info: UpdateInfo,
+    app_handle: tauri::AppHandle,
+) -> Result<String, String> {
+    let manager = UpdateManager::new();
+    manager
+        .download_update_with_progress(&update_info, &app_handle)
         .await
         .map_err(|e| e.to_string())
 }
@@ -50,6 +64,37 @@ pub async fn install_update(file_path: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
+
+    Ok(())
+}
+
+/// Install the update and quit the application
+#[tauri::command]
+pub async fn install_update_and_quit(
+    file_path: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // On Windows, run the installer in normal mode (not silent)
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        Command::new("cmd")
+            .args(["/C", "start", "", &file_path])
+            .spawn()
+            .map_err(|e| format!("Failed to start installer: {}", e))?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::process::Command;
+        Command::new("open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+
+    // Exit the application
+    app_handle.exit(0);
 
     Ok(())
 }

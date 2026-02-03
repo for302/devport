@@ -12,6 +12,7 @@ import { PortConflictModal } from "../modals/PortConflictModal";
 import { ConfirmDeleteModal } from "../modals/ConfirmDeleteModal";
 import { EnvEditorModal } from "../modals/EnvEditorModal";
 import { ConfigEditorModal } from "../modals/ConfigEditorModal";
+import { UpdateModal } from "../modals/UpdateModal";
 import { useUiStore, useProjectStore, usePortStore, useServiceStore } from "@/stores";
 import { useTauriEvents } from "@/hooks";
 
@@ -92,6 +93,7 @@ export function AppShell() {
       {activeModal === "confirmDelete" && <ConfirmDeleteModal />}
       {activeModal === "envEditor" && <EnvEditorModal />}
       {activeModal === "configEditor" && <ConfigEditorModal />}
+      {activeModal === "update" && <UpdateModal />}
 
       {/* Toast Notifications */}
       <ToastContainer />

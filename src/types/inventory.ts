@@ -122,6 +122,7 @@ export const INSTALL_SOURCE_COLORS: Record<InstallSource, string> = {
 // Inventory item ID → Service ID mapping
 export const INVENTORY_TO_SERVICE_MAP: Record<string, string> = {
   apache: "apache",
+  mariadb: "mariadb",
   mysql: "mariadb",
 };
 

@@ -1100,3 +1100,70 @@ pub async fn get_apache_base_path() -> Result<String, String> {
         .map(|p| p.to_string_lossy().to_string())
         .ok_or_else(|| "Apache installation not found".to_string())
 }
+
+// ============================================================================
+// Site Title Extraction
+// ============================================================================
+
+/// Extract <title> tag content from index file in a document root
+#[tauri::command]
+pub async fn get_site_title(document_root: String) -> Result<Option<String>, String> {
+    let doc_root = PathBuf::from(&document_root);
+
+    if !doc_root.exists() || !doc_root.is_dir() {
+        return Ok(None);
+    }
+
+    // List of index files to check in order of priority
+    let index_files = [
+        "index.html",
+        "index.htm",
+        "index.php",
+        "home.html",
+        "home.php",
+        "default.html",
+        "default.php",
+    ];
+
+    for index_file in index_files {
+        let file_path = doc_root.join(index_file);
+        if file_path.exists() {
+            if let Ok(content) = fs::read_to_string(&file_path) {
+                // Try to extract title with regex
+                // Handles: <title>Content</title>, <title  >Content</title>, multiline etc.
+                let title_regex = Regex::new(r"(?is)<title[^>]*>\s*(.*?)\s*</title>")
+                    .map_err(|e| format!("Regex error: {}", e))?;
+
+                if let Some(captures) = title_regex.captures(&content) {
+                    if let Some(title_match) = captures.get(1) {
+                        let title = title_match.as_str().trim();
+                        // Skip empty titles or generic ones
+                        if !title.is_empty()
+                            && title.to_lowercase() != "document"
+                            && title.to_lowercase() != "untitled"
+                            && title.to_lowercase() != "welcome"
+                            && !title.to_lowercase().starts_with("{{")  // Skip template variables
+                        {
+                            // Decode HTML entities
+                            let decoded = decode_html_entities(title);
+                            return Ok(Some(decoded));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Simple HTML entity decoder
+fn decode_html_entities(text: &str) -> String {
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+}

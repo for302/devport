@@ -4,14 +4,37 @@ import { AppShell } from "./components/layout/AppShell";
 import { SetupWizard } from "./components/installer/SetupWizard";
 import { Loader2 } from "lucide-react";
 import type { InstalledComponent } from "./types";
+import { useUpdaterStore, useUiStore } from "./stores";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isFirstRun, setIsFirstRun] = useState(false);
+  const checkForUpdates = useUpdaterStore((state) => state.checkForUpdates);
+  const updateStatus = useUpdaterStore((state) => state.status);
+  const isDismissed = useUpdaterStore((state) => state.isDismissed);
+  const openModal = useUiStore((state) => state.openModal);
 
   useEffect(() => {
     checkFirstRun();
   }, []);
+
+  // Check for updates after app loads (only when not in first run)
+  useEffect(() => {
+    if (!isLoading && !isFirstRun) {
+      // Delay update check to avoid blocking startup
+      const timer = setTimeout(() => {
+        checkForUpdates();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, isFirstRun, checkForUpdates]);
+
+  // Open update modal when update is available
+  useEffect(() => {
+    if (updateStatus === "available" && !isDismissed) {
+      openModal("update");
+    }
+  }, [updateStatus, isDismissed, openModal]);
 
   const checkFirstRun = async () => {
     try {
