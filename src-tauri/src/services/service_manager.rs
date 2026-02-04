@@ -1,6 +1,7 @@
 use crate::models::{Service, ServiceStatus, HealthCheckType};
 use crate::services::log_manager::LogManager;
 use crate::services::port_scanner::PortScanner;
+use crate::services::process_manager::{kill_process_tree, kill_process_tree_silent, CREATE_NO_WINDOW};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use tokio::time::{sleep, Duration};
@@ -8,8 +9,6 @@ use tokio::time::{sleep, Duration};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(windows)]
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
@@ -185,44 +184,20 @@ impl ServiceManager {
         let pid = service.pid;
 
         if let Some(mut child) = self.processes.remove(id) {
-            // Process started by DevPort - kill via Child handle
-            #[cfg(windows)]
-            {
-                if let Some(pid) = pid {
-                    let _ = Command::new("taskkill")
-                        .args(["/F", "/T", "/PID", &pid.to_string()])
-                        .creation_flags(CREATE_NO_WINDOW)
-                        .output();
-                }
+            // Process started by DevPort - kill via centralized function
+            if let Some(pid) = pid {
+                kill_process_tree_silent(pid);
             }
-
-            #[cfg(not(windows))]
-            {
-                let _ = child.kill();
-            }
-
             let _ = child.wait();
         } else if let Some(pid) = pid {
             // Externally started process - kill by PID directly
-            #[cfg(windows)]
-            {
-                let output = Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", &pid.to_string()])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .output()
-                    .map_err(|e| format!("Failed to kill process: {}", e))?;
-
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("Failed to stop external process (PID {}): {}", pid, stderr));
-                }
-            }
-
-            #[cfg(not(windows))]
-            {
-                let _ = Command::new("kill")
-                    .args(["-9", &pid.to_string()])
-                    .output();
+            let result = kill_process_tree(pid);
+            if !result.success {
+                return Err(format!(
+                    "Failed to stop external process (PID {}): {}",
+                    pid,
+                    result.error.unwrap_or_else(|| "Unknown error".to_string())
+                ));
             }
         }
 

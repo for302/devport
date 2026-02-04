@@ -18,6 +18,7 @@ pub struct CreateProjectInput {
     pub auto_start: bool,
     pub health_check_url: Option<String>,
     pub domain: Option<String>,
+    pub github_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,12 +40,36 @@ pub struct DetectedProjectInfo {
     pub start_command: String,
     pub default_port: u16,
     pub venv_path: Option<String>,
+    pub github_url: Option<String>,
 }
 
 #[tauri::command]
 pub fn get_projects() -> Result<Vec<Project>, String> {
     let storage = Storage::new().map_err(|e| e.to_string())?;
-    storage.load_projects().map_err(|e| e.to_string())
+    let mut projects = storage.load_projects().map_err(|e| e.to_string())?;
+
+    // Auto-detect GitHub URLs for projects that don't have one
+    let mut updated = false;
+    for project in &mut projects {
+        if project.github_url.is_none() {
+            let path = std::path::Path::new(&project.path);
+            if let Some(github_url) = ProjectDetector::detect_github_url(path) {
+                project.github_url = Some(github_url);
+                updated = true;
+            }
+        }
+    }
+
+    // Save updated projects if any GitHub URLs were detected
+    if updated {
+        for project in &projects {
+            if project.github_url.is_some() {
+                let _ = storage.update_project(project.clone());
+            }
+        }
+    }
+
+    Ok(projects)
 }
 
 #[tauri::command]
@@ -66,6 +91,7 @@ pub fn create_project(
     project.auto_start = input.auto_start;
     project.health_check_url = input.health_check_url;
     project.domain = input.domain.clone();
+    project.github_url = input.github_url;
 
     // Add hosts entry if domain is provided
     if let Some(ref domain) = input.domain {
@@ -156,5 +182,6 @@ pub fn detect_project_type(path: String) -> Result<DetectedProjectInfo, String> 
         start_command: detected.start_command,
         default_port: detected.default_port,
         venv_path: detected.venv_path,
+        github_url: detected.github_url,
     })
 }

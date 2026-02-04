@@ -1,54 +1,42 @@
-import { Play, Square, RotateCcw, Folder, Edit, Trash2, Code2, Terminal, Globe, FolderOpen, Database, Loader2 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import { memo } from "react";
+import { Play, Square, RotateCcw, Folder, Edit, Trash2, Code2, Terminal, Globe, FolderOpen, Github, Loader2 } from "lucide-react";
 import type { Project } from "@/types";
-import { useProcessStore, useUiStore, useServiceStore, useActivityLogStore } from "@/stores";
+import { useProcessStore, useUiStore, useActivityLogStore } from "@/stores";
+import { useProjectActions } from "@/hooks";
+import { getProjectTypeColor } from "@/constants";
 
 interface ProjectListItemProps {
   project: Project;
 }
 
-const projectTypeColors: Record<string, string> = {
-  tauri: "bg-yellow-500 text-black",
-  electron: "bg-blue-400 text-white",
-  nextjs: "bg-black text-white",
-  vite: "bg-purple-500 text-white",
-  react: "bg-cyan-500 text-white",
-  vue: "bg-emerald-500 text-white",
-  angular: "bg-red-500 text-white",
-  svelte: "bg-orange-500 text-white",
-  python: "bg-yellow-600 text-black",
-  pythontkinter: "bg-yellow-600 text-black",
-  pythonpyqt: "bg-yellow-600 text-black",
-  pythonwx: "bg-yellow-600 text-black",
-  pythonpygame: "bg-yellow-600 text-black",
-  pythonkivy: "bg-yellow-600 text-black",
-  django: "bg-green-700 text-white",
-  flask: "bg-gray-600 text-white",
-  fastapi: "bg-teal-500 text-white",
-  node: "bg-green-500 text-white",
-  express: "bg-gray-700 text-white",
-  unknown: "bg-slate-600 text-white",
-};
-
-export function ProjectListItem({ project }: ProjectListItemProps) {
+export const ProjectListItem = memo(function ProjectListItem({ project }: ProjectListItemProps) {
   const isRunning = useProcessStore((state) => state.isProjectRunning(project.id));
   const isLoading = useProcessStore((state) => state.isLoading[project.id] || false);
   const startProject = useProcessStore((state) => state.startProject);
   const stopProject = useProcessStore((state) => state.stopProject);
   const restartProject = useProcessStore((state) => state.restartProject);
   const openModal = useUiStore((state) => state.openModal);
-  const services = useServiceStore((state) => state.services);
   const addLog = useActivityLogStore((state) => state.addLog);
-  const apacheService = services.find((s) => s.id === "apache");
-  const apachePort = apacheService?.port || 8080;
 
-  const typeColor = projectTypeColors[project.projectType] || projectTypeColors.unknown;
+  // Use centralized project actions hook
+  const { openInVscode, openInTerminal, openInBrowser, openInExplorer, openGitHub } = useProjectActions(project);
+
+  const typeColor = getProjectTypeColor(project.projectType);
 
   const handleStart = async () => {
     addLog(project.name, "Starting project...", "info");
     try {
       await startProject(project.id);
       addLog(project.name, project.port > 0 ? `Started on port ${project.port}` : "Started", "success");
+
+      // Auto-open browser for web projects (port > 0)
+      if (project.port > 0) {
+        // Wait for server to start before opening browser
+        setTimeout(() => {
+          openInBrowser();
+          addLog(project.name, `Opening http://localhost:${project.port}`, "info");
+        }, 2000);
+      }
     } catch (err) {
       addLog(project.name, `Failed to start: ${err}`, "error");
     }
@@ -71,50 +59,6 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
       addLog(project.name, project.port > 0 ? `Restarted on port ${project.port}` : "Restarted", "success");
     } catch (err) {
       addLog(project.name, `Failed to restart: ${err}`, "error");
-    }
-  };
-
-  const handleOpenVscode = async () => {
-    try {
-      await invoke("open_in_vscode", { path: project.path });
-    } catch (error) {
-      console.error("Failed to open VS Code:", error);
-    }
-  };
-
-  const handleOpenTerminal = async () => {
-    try {
-      await invoke("open_in_terminal", { path: project.path });
-    } catch (error) {
-      console.error("Failed to open terminal:", error);
-    }
-  };
-
-  const handleOpenBrowser = async () => {
-    try {
-      await invoke("open_in_browser", { url: `http://localhost:${project.port}` });
-    } catch (error) {
-      console.error("Failed to open browser:", error);
-    }
-  };
-
-  const handleOpenExplorer = async () => {
-    try {
-      await invoke("open_file_explorer", { path: project.path });
-    } catch (error) {
-      console.error("Failed to open file explorer:", error);
-    }
-  };
-
-  const handleOpenPhpMyAdmin = async () => {
-    const dbName = project.envVars?.DB_DATABASE ||
-                   project.envVars?.DATABASE_NAME ||
-                   project.name.toLowerCase().replace(/[^a-z0-9]/g, "_");
-    const phpMyAdminUrl = `http://localhost:${apachePort}/phpmyadmin/index.php?db=${encodeURIComponent(dbName)}`;
-    try {
-      await invoke("open_in_browser", { url: phpMyAdminUrl });
-    } catch (error) {
-      console.error("Failed to open phpMyAdmin:", error);
     }
   };
 
@@ -148,14 +92,14 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
       {/* Quick Actions */}
       <div className="flex items-center gap-1 flex-shrink-0">
         <button
-          onClick={handleOpenVscode}
+          onClick={openInVscode}
           className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
           title="VS Code"
         >
           <Code2 size={16} />
         </button>
         <button
-          onClick={handleOpenTerminal}
+          onClick={openInTerminal}
           className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
           title="Terminal"
         >
@@ -163,7 +107,7 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
         </button>
         {project.port > 0 && (
         <button
-          onClick={handleOpenBrowser}
+          onClick={openInBrowser}
           className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
           title="Browser"
         >
@@ -171,18 +115,23 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
         </button>
         )}
         <button
-          onClick={handleOpenExplorer}
+          onClick={openInExplorer}
           className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
           title="Explorer"
         >
           <FolderOpen size={16} />
         </button>
         <button
-          onClick={handleOpenPhpMyAdmin}
-          className="p-1.5 rounded hover:bg-slate-700 text-orange-400 hover:text-orange-300 transition-colors"
-          title="Database"
+          onClick={project.githubUrl ? openGitHub : undefined}
+          disabled={!project.githubUrl}
+          className={`p-1.5 rounded transition-colors ${
+            project.githubUrl
+              ? "hover:bg-slate-700 text-white hover:text-slate-200"
+              : "text-slate-600 cursor-not-allowed"
+          }`}
+          title={project.githubUrl ? "Open GitHub" : "No GitHub repository"}
         >
-          <Database size={16} />
+          <Github size={16} />
         </button>
       </div>
 
@@ -273,4 +222,4 @@ export function ProjectListItem({ project }: ProjectListItemProps) {
       )}
     </div>
   );
-}
+});

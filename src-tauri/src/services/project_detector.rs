@@ -21,6 +21,7 @@ pub struct DetectedProject {
     pub start_command: String,
     pub default_port: u16,
     pub venv_path: Option<String>,
+    pub github_url: Option<String>,
 }
 
 pub struct ProjectDetector;
@@ -178,6 +179,7 @@ impl ProjectDetector {
             start_command: String::new(),
             default_port: 3000,
             venv_path: None,
+            github_url: Self::detect_github_url(path),
         })
     }
 
@@ -227,6 +229,7 @@ impl ProjectDetector {
                 start_command: start_cmd.to_string(),
                 default_port,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -258,6 +261,7 @@ impl ProjectDetector {
                 start_command: start_cmd.to_string(),
                 default_port,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -276,6 +280,7 @@ impl ProjectDetector {
                 start_command: start_cmd.to_string(),
                 default_port,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -300,6 +305,7 @@ impl ProjectDetector {
                 start_command: "npm run dev".to_string(),
                 default_port,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -313,6 +319,7 @@ impl ProjectDetector {
                 start_command: "npm start".to_string(),
                 default_port: 4200,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -324,6 +331,7 @@ impl ProjectDetector {
                 start_command: "npm run serve".to_string(),
                 default_port: 8080,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -335,6 +343,7 @@ impl ProjectDetector {
                 start_command: "npm start".to_string(),
                 default_port: 3000,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -346,6 +355,7 @@ impl ProjectDetector {
                 start_command: "npm start".to_string(),
                 default_port: 3000,
                 venv_path: None,
+                github_url: Self::detect_github_url(project_path),
             });
         }
 
@@ -356,6 +366,7 @@ impl ProjectDetector {
             start_command: "npm start".to_string(),
             default_port: 3000,
             venv_path: None,
+            github_url: Self::detect_github_url(project_path),
         })
     }
 
@@ -372,6 +383,69 @@ impl ProjectDetector {
                 return Some(venv_dir.to_string());
             }
         }
+        None
+    }
+
+    /// Detect GitHub URL from .git/config
+    /// Parses remote "origin" URL and converts SSH format to HTTPS
+    pub fn detect_github_url(project_path: &Path) -> Option<String> {
+        let git_config = project_path.join(".git").join("config");
+        if !git_config.exists() {
+            return None;
+        }
+
+        let content = fs::read_to_string(&git_config).ok()?;
+
+        // Find [remote "origin"] section and extract URL
+        let mut in_origin_section = false;
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            // Check for section headers
+            if trimmed.starts_with('[') {
+                in_origin_section = trimmed == "[remote \"origin\"]";
+                continue;
+            }
+
+            // If we're in the origin section, look for url
+            if in_origin_section && trimmed.starts_with("url") {
+                if let Some(url_part) = trimmed.split('=').nth(1) {
+                    let url = url_part.trim();
+                    return Self::convert_to_github_https_url(url);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Convert various Git URL formats to GitHub HTTPS URL
+    /// Returns None if not a GitHub URL
+    fn convert_to_github_https_url(url: &str) -> Option<String> {
+        let url = url.trim();
+
+        // Handle SSH format: git@github.com:user/repo.git
+        if url.starts_with("git@github.com:") {
+            let path = url.strip_prefix("git@github.com:")?;
+            let path = path.strip_suffix(".git").unwrap_or(path);
+            return Some(format!("https://github.com/{}", path));
+        }
+
+        // Handle HTTPS format: https://github.com/user/repo.git
+        if url.starts_with("https://github.com/") {
+            let path = url.strip_prefix("https://github.com/")?;
+            let path = path.strip_suffix(".git").unwrap_or(path);
+            return Some(format!("https://github.com/{}", path));
+        }
+
+        // Handle HTTP format: http://github.com/user/repo.git
+        if url.starts_with("http://github.com/") {
+            let path = url.strip_prefix("http://github.com/")?;
+            let path = path.strip_suffix(".git").unwrap_or(path);
+            return Some(format!("https://github.com/{}", path));
+        }
+
+        // Not a GitHub URL
         None
     }
 
@@ -508,6 +582,7 @@ impl ProjectDetector {
                     start_command: cmd,
                     default_port: 8000,
                     venv_path: venv,
+                    github_url: Self::detect_github_url(path),
                 });
             }
         }
@@ -520,6 +595,7 @@ impl ProjectDetector {
                 start_command: "uvicorn main:app --reload".to_string(),
                 default_port: 8000,
                 venv_path: venv,
+                github_url: Self::detect_github_url(path),
             });
         }
 
@@ -534,6 +610,7 @@ impl ProjectDetector {
                 start_command,
                 default_port: 5000,
                 venv_path: venv,
+                github_url: Self::detect_github_url(path),
             });
         }
 
@@ -546,6 +623,7 @@ impl ProjectDetector {
                 start_command: Self::python_command(&venv, entry),
                 default_port: 0,
                 venv_path: venv,
+                github_url: Self::detect_github_url(path),
             });
         }
         if deps_content.contains("kivy") {
@@ -555,6 +633,7 @@ impl ProjectDetector {
                 start_command: Self::python_command(&venv, "main.py"),
                 default_port: 0,
                 venv_path: venv,
+                github_url: Self::detect_github_url(path),
             });
         }
         if deps_content.contains("PyQt5") || deps_content.contains("PyQt6")
@@ -566,6 +645,7 @@ impl ProjectDetector {
                 start_command: Self::python_command(&venv, "main.py"),
                 default_port: 0,
                 venv_path: venv,
+                github_url: Self::detect_github_url(path),
             });
         }
         if deps_content.contains("wxPython") || deps_content.contains("wxpython") {
@@ -575,6 +655,7 @@ impl ProjectDetector {
                 start_command: Self::python_command(&venv, "main.py"),
                 default_port: 0,
                 venv_path: venv,
+                github_url: Self::detect_github_url(path),
             });
         }
 
@@ -595,6 +676,7 @@ impl ProjectDetector {
                 start_command: Self::python_command(&venv, entry),
                 default_port: 0,
                 venv_path: venv,
+                github_url: Self::detect_github_url(path),
             });
         }
 
@@ -612,6 +694,7 @@ impl ProjectDetector {
             start_command: Self::python_command(&venv, entry),
             default_port: 8000,
             venv_path: venv,
+            github_url: Self::detect_github_url(path),
         })
     }
 }

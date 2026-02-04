@@ -5,91 +5,18 @@ import { detectProjectType } from "@/services/tauriCommands";
 import type { ProjectType, CreateProjectInput } from "@/types";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  FRAMEWORK_OPTIONS,
+  NO_PORT_TYPES,
+  getDefaultPort,
+  getDefaultCommand,
+} from "@/constants";
 
 interface AddProjectModalProps {
   isEdit?: boolean;
 }
 
 type PackageManager = "npm" | "pnpm" | "yarn";
-
-const FRAMEWORK_OPTIONS = [
-  { value: "tauri", label: "Tauri", category: "Desktop" },
-  { value: "electron", label: "Electron", category: "Desktop" },
-  { value: "nextjs", label: "Next.js", category: "Node.js" },
-  { value: "vite", label: "Vite (React)", category: "Node.js" },
-  { value: "react", label: "React", category: "Node.js" },
-  { value: "vue", label: "Vue (Vite)", category: "Node.js" },
-  { value: "svelte", label: "Svelte", category: "Node.js" },
-  { value: "angular", label: "Angular", category: "Node.js" },
-  { value: "express", label: "Express.js", category: "Node.js" },
-  { value: "node", label: "Node.js", category: "Node.js" },
-  { value: "laravel", label: "Laravel", category: "PHP" },
-  { value: "codeigniter", label: "CodeIgniter", category: "PHP" },
-  { value: "django", label: "Django", category: "Python Web" },
-  { value: "flask", label: "Flask", category: "Python Web" },
-  { value: "fastapi", label: "FastAPI", category: "Python Web" },
-  { value: "python", label: "Python", category: "Python" },
-  { value: "pythontkinter", label: "Tkinter", category: "Python Desktop" },
-  { value: "pythonpyqt", label: "PyQt", category: "Python Desktop" },
-  { value: "pythonwx", label: "wxPython", category: "Python Desktop" },
-  { value: "pythonpygame", label: "Pygame", category: "Python Desktop" },
-  { value: "pythonkivy", label: "Kivy", category: "Python Desktop" },
-  { value: "unknown", label: "Other", category: "Other" },
-];
-
-const DEFAULT_PORTS: Record<string, number> = {
-  tauri: 1420,
-  electron: 3000,
-  nextjs: 3000,
-  react: 3000,
-  vite: 5173,
-  vue: 5173,
-  svelte: 5173,
-  angular: 4200,
-  express: 3000,
-  node: 3000,
-  laravel: 8000,
-  codeigniter: 8080,
-  django: 8000,
-  flask: 5000,
-  fastapi: 8000,
-  python: 8000,
-  pythontkinter: 0,
-  pythonpyqt: 0,
-  pythonwx: 0,
-  pythonpygame: 0,
-  pythonkivy: 0,
-  unknown: 3000,
-};
-
-const DEFAULT_COMMANDS: Record<string, string> = {
-  tauri: "npm run tauri dev",
-  electron: "npm run dev",
-  nextjs: "npm run dev",
-  react: "npm start",
-  vite: "npm run dev",
-  vue: "npm run dev",
-  svelte: "npm run dev",
-  angular: "npm start",
-  express: "npm start",
-  node: "npm start",
-  laravel: "php artisan serve",
-  codeigniter: "php spark serve",
-  django: "python manage.py runserver",
-  flask: "flask run",
-  fastapi: "uvicorn main:app --reload",
-  python: "python main.py",
-  pythontkinter: "python main.py",
-  pythonpyqt: "python main.py",
-  pythonwx: "python main.py",
-  pythonpygame: "python main.py",
-  pythonkivy: "python main.py",
-  unknown: "npm start",
-};
-
-const NO_PORT_TYPES: ProjectType[] = [
-  "pythontkinter", "pythonpyqt", "pythonwx", "pythonpygame", "pythonkivy",
-];
 
 export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
   const closeModal = useUiStore((state) => state.closeModal);
@@ -117,6 +44,7 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
   const [packageManager, setPackageManager] = useState<PackageManager>("pnpm");
   const [createDatabase, setCreateDatabase] = useState(false);
   const [databaseName, setDatabaseName] = useState("");
+  const [githubUrl, setGithubUrl] = useState<string | null>(editProject?.githubUrl || null);
 
   const [isDetecting, setIsDetecting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -214,6 +142,7 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
       setProjectType(detected.projectType);
       setStartCommand(detected.startCommand);
       setPort(detected.defaultPort.toString());
+      setGithubUrl(detected.githubUrl);
       console.log("Detection complete, UI updated");
     } catch (err) {
       console.error("Detection failed:", err);
@@ -225,8 +154,8 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
 
   const handleFrameworkChange = (type: ProjectType) => {
     setProjectType(type);
-    setPort(DEFAULT_PORTS[type]?.toString() || "3000");
-    setStartCommand(DEFAULT_COMMANDS[type] || "npm start");
+    setPort(getDefaultPort(type).toString());
+    setStartCommand(getDefaultCommand(type));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -254,6 +183,7 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
           autoStart,
           healthCheckUrl: healthCheckUrl || null,
           domain: domainEnabled && domain ? domain : null,  // Only use if enabled
+          githubUrl,
         };
         await createProject(input);
       }

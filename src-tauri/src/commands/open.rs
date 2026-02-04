@@ -14,13 +14,23 @@ pub async fn open_in_vscode(app_handle: AppHandle, path: String) -> Result<(), S
     Ok(())
 }
 
-/// Opens PowerShell in the specified project directory.
+/// Opens Command Prompt (cmd.exe) in the specified project directory.
 #[tauri::command]
-pub async fn open_in_terminal(app_handle: AppHandle, path: String) -> Result<(), String> {
-    app_handle
-        .shell()
-        .command("powershell")
-        .args(["-NoExit", "-Command", &format!("cd '{}'", path)])
+pub async fn open_in_terminal(_app_handle: AppHandle, path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    // Try Windows Terminal first
+    let wt_result = Command::new("wt")
+        .args(["-d", &path])
+        .spawn();
+
+    if wt_result.is_ok() {
+        return Ok(());
+    }
+
+    // Fallback to cmd.exe with start command
+    Command::new("cmd")
+        .args(["/C", "start", "cmd.exe", "/K", &format!("cd /d {}", &path)])
         .spawn()
         .map_err(|e| format!("Failed to open terminal: {}", e))?;
 

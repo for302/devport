@@ -1,16 +1,10 @@
 use crate::models::process_info::ProcessInfo;
-use crate::services::process_manager::ProcessManager;
+use crate::services::process_manager::{ProcessManager, kill_process_tree_silent};
 use crate::services::storage::Storage;
 use crate::state::AppState;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[tauri::command]
 pub async fn start_project(
@@ -44,17 +38,8 @@ pub async fn stop_project(
     let mut app_state = state.lock().await;
 
     if let Some(process_info) = app_state.running_processes.remove(&project_id) {
-        // Kill the process tree on Windows
-        #[cfg(windows)]
-        let _ = std::process::Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &process_info.pid.to_string()])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-
-        #[cfg(not(windows))]
-        let _ = std::process::Command::new("kill")
-            .args(["-9", &process_info.pid.to_string()])
-            .output();
+        // Kill the process tree using centralized function
+        kill_process_tree_silent(process_info.pid);
 
         // Emit process stopped event
         let _ = app_handle.emit(

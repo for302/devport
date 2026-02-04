@@ -11,3 +11,4 @@ export * from "./bundle";
 export * from "./uninstaller";
 export * from "./inventory";
 export * from "./installer";
+export * from "./error";

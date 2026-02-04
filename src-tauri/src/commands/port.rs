@@ -1,5 +1,6 @@
 use crate::models::PortInfo;
 use crate::services::port_scanner::PortScanner;
+use crate::services::process_manager::kill_process_tree;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
@@ -7,7 +8,7 @@ use std::process::Command;
 use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+use crate::services::process_manager::CREATE_NO_WINDOW;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,25 +99,15 @@ pub async fn get_process_details(pid: u32) -> Result<ProcessDetails, String> {
 #[tauri::command]
 pub async fn kill_process_by_pid(pid: u32) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        // Use taskkill with /F (force) and /T (tree - kill child processes too)
-        #[cfg(windows)]
-        let output = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("Failed to kill process: {}", e))?;
-
-        #[cfg(not(windows))]
-        let output = Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output()
-            .map_err(|e| format!("Failed to kill process: {}", e))?;
-
-        if output.status.success() {
+        let result = kill_process_tree(pid);
+        if result.success {
             Ok(())
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(format!("Failed to kill process {}: {}", pid, stderr.trim()))
+            Err(format!(
+                "Failed to kill process {}: {}",
+                pid,
+                result.error.unwrap_or_else(|| "Unknown error".to_string())
+            ))
         }
     })
     .await

@@ -16,6 +16,8 @@ export type ProjectType =
   | "django"
   | "flask"
   | "fastapi"
+  | "laravel"
+  | "codeigniter"
   | "node"
   | "express"
   | "unknown";
@@ -31,6 +33,7 @@ export interface Project {
   autoStart: boolean;
   healthCheckUrl: string | null;
   domain: string | null;  // Custom domain for hosts file (e.g., "my-app.test")
+  githubUrl: string | null;  // GitHub repository URL
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +47,7 @@ export interface CreateProjectInput {
   autoStart?: boolean;
   healthCheckUrl?: string | null;
   domain?: string | null;  // Custom domain for hosts file
+  githubUrl?: string | null;  // GitHub repository URL
 }
 
 export interface UpdateProjectInput {
@@ -61,4 +65,5 @@ export interface DetectedProjectInfo {
   startCommand: string;
   defaultPort: number;
   venvPath: string | null;
+  githubUrl: string | null;
 }

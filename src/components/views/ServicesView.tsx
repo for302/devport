@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   RefreshCw,
   ExternalLink,
@@ -16,6 +16,8 @@ import { InventorySection } from "@/components/inventory";
 import { ServiceLogViewer, ServiceActivityLog } from "@/components/services";
 import { InstallModal } from "@/components/installer";
 import { CATEGORY_META, type InventoryCategory, type ComponentInfo } from "@/types";
+import { useServiceControl } from "@/hooks";
+import { getServiceDisplayName } from "@/constants";
 
 interface PhpMyAdminStatus {
   isAvailable: boolean;
@@ -37,18 +39,10 @@ const CATEGORY_KEY_TO_TYPE: Record<string, InventoryCategory> = {
   devTools: "devTool",
 };
 
-// Map service IDs to display names
-const SERVICE_DISPLAY_NAMES: Record<string, string> = {
-  apache: "Apache",
-  mariadb: "MariaDB",
-};
-
 export function ServicesView() {
   const [phpMyAdminStatus, setPhpMyAdminStatus] =
     useState<PhpMyAdminStatus | null>(null);
   const [isCheckingPhpMyAdmin, setIsCheckingPhpMyAdmin] = useState(false);
-  const [loadingServiceId, setLoadingServiceId] = useState<string | null>(null);
-  const [loadingAction, setLoadingAction] = useState<"start" | "stop" | "restart" | null>(null);
   const [logViewerState, setLogViewerState] = useState<{
     isOpen: boolean;
     serviceId: string;
@@ -75,9 +69,6 @@ export function ServicesView() {
   const {
     services,
     fetchServices,
-    startService,
-    stopService,
-    restartService,
   } = useServiceStore();
 
   const { addLog } = useActivityLogStore();
@@ -86,6 +77,15 @@ export function ServicesView() {
     categoryGroups,
     fetchCategoryGroups,
   } = useInstallerStore();
+
+  // Use centralized service control hook
+  const {
+    loadingServiceId,
+    loadingAction,
+    handleStartService,
+    handleStopService,
+    handleRestartService,
+  } = useServiceControl();
 
   const checkPhpMyAdminStatus = async () => {
     setIsCheckingPhpMyAdmin(true);
@@ -125,68 +125,6 @@ export function ServicesView() {
     scanInventory();
   };
 
-  // Service control handlers with activity logging
-  const handleStartService = useCallback(
-    async (serviceId: string) => {
-      const serviceName = SERVICE_DISPLAY_NAMES[serviceId] || serviceId;
-      setLoadingServiceId(serviceId);
-      setLoadingAction("start");
-      addLog(serviceName, "Starting service...", "info");
-
-      try {
-        await startService(serviceId);
-        addLog(serviceName, "Service started successfully", "success");
-      } catch (err) {
-        addLog(serviceName, `Failed to start: ${err}`, "error");
-      } finally {
-        setLoadingServiceId(null);
-        setLoadingAction(null);
-      }
-    },
-    [startService, addLog]
-  );
-
-  const handleStopService = useCallback(
-    async (serviceId: string) => {
-      const serviceName = SERVICE_DISPLAY_NAMES[serviceId] || serviceId;
-      setLoadingServiceId(serviceId);
-      setLoadingAction("stop");
-      addLog(serviceName, "Stopping service...", "info");
-
-      try {
-        await stopService(serviceId);
-        addLog(serviceName, "Service stopped successfully", "success");
-      } catch (err) {
-        addLog(serviceName, `Failed to stop: ${err}`, "error");
-      } finally {
-        setLoadingServiceId(null);
-        setLoadingAction(null);
-      }
-    },
-    [stopService, addLog]
-  );
-
-  const handleRestartService = useCallback(
-    async (serviceId: string) => {
-      const serviceName = SERVICE_DISPLAY_NAMES[serviceId] || serviceId;
-      setLoadingServiceId(serviceId);
-      setLoadingAction("restart");
-      addLog(serviceName, "Restarting service...", "info");
-      addLog(serviceName, "Stopping service...", "info");
-
-      try {
-        await restartService(serviceId);
-        addLog(serviceName, "Service restarted successfully", "success");
-      } catch (err) {
-        addLog(serviceName, `Failed to restart: ${err}`, "error");
-      } finally {
-        setLoadingServiceId(null);
-        setLoadingAction(null);
-      }
-    },
-    [restartService, addLog]
-  );
-
   const handleViewLogs = useCallback((serviceId: string, serviceName: string) => {
     setLogViewerState({ isOpen: true, serviceId, serviceName });
   }, []);
@@ -196,7 +134,7 @@ export function ServicesView() {
   }, []);
 
   const handleSettings = useCallback((serviceId: string) => {
-    const serviceName = SERVICE_DISPLAY_NAMES[serviceId] || serviceId;
+    const serviceName = getServiceDisplayName(serviceId);
     addLog(serviceName, "Opening settings...", "info");
     // TODO: Open settings modal for the service
     console.log("Open settings for service:", serviceId);
@@ -241,26 +179,31 @@ export function ServicesView() {
       ? "http://localhost/phpmyadmin"
       : `http://localhost:${apachePort}/phpmyadmin`);
 
-  // Calculate totals
-  const totalInstalled = inventory
-    ? inventory.runtimes.filter((i) => i.isInstalled).length +
+  // Calculate totals (memoized for performance)
+  const { totalInstalled, totalItems } = useMemo(() => {
+    if (!inventory) {
+      return { totalInstalled: 0, totalItems: 0 };
+    }
+    const installed =
+      inventory.runtimes.filter((i) => i.isInstalled).length +
       inventory.webServers.filter((i) => i.isInstalled).length +
       inventory.databases.filter((i) => i.isInstalled).length +
       inventory.buildTools.filter((i) => i.isInstalled).length +
       inventory.frameworks.filter((i) => i.isInstalled).length +
       inventory.packageManagers.filter((i) => i.isInstalled).length +
-      inventory.devTools.filter((i) => i.isInstalled).length
-    : 0;
+      inventory.devTools.filter((i) => i.isInstalled).length;
 
-  const totalItems = inventory
-    ? inventory.runtimes.length +
+    const total =
+      inventory.runtimes.length +
       inventory.webServers.length +
       inventory.databases.length +
       inventory.buildTools.length +
       inventory.frameworks.length +
       inventory.packageManagers.length +
-      inventory.devTools.length
-    : 0;
+      inventory.devTools.length;
+
+    return { totalInstalled: installed, totalItems: total };
+  }, [inventory]);
 
   return (
     <div className="h-full flex flex-col">

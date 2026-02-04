@@ -45,6 +45,8 @@ pub struct Project {
     pub health_check_url: Option<String>,
     #[serde(default)]
     pub domain: Option<String>,  // Custom domain for hosts file (e.g., "my-app.test")
+    #[serde(default)]
+    pub github_url: Option<String>,  // GitHub repository URL
     pub created_at: String,
     pub updated_at: String,
 }
@@ -69,6 +71,7 @@ impl Project {
             auto_start: false,
             health_check_url: None,
             domain: None,
+            github_url: None,
             created_at: now.clone(),
             updated_at: now,
         }

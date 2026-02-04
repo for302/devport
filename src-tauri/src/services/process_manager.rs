@@ -10,8 +10,9 @@ use thiserror::Error;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+/// Windows constant for creating a process without a console window
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
+pub const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Error, Debug)]
 pub enum ProcessError {
@@ -23,6 +24,81 @@ pub enum ProcessError {
     NotFound(String),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+}
+
+/// Result of a process kill operation
+#[derive(Debug)]
+pub struct KillResult {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// Kill a process tree by PID.
+/// On Windows, uses `taskkill /F /T /PID` to kill the process and all child processes.
+/// On Unix, uses `kill -9`.
+///
+/// # Arguments
+/// * `pid` - The process ID to kill
+///
+/// # Returns
+/// * `KillResult` indicating success or failure with optional error message
+pub fn kill_process_tree(pid: u32) -> KillResult {
+    #[cfg(windows)]
+    {
+        let output = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        match output {
+            Ok(out) => {
+                if out.status.success() {
+                    KillResult { success: true, error: None }
+                } else {
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                    KillResult {
+                        success: false,
+                        error: Some(stderr.trim().to_string())
+                    }
+                }
+            }
+            Err(e) => KillResult {
+                success: false,
+                error: Some(e.to_string()),
+            },
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .output();
+
+        match output {
+            Ok(out) => {
+                if out.status.success() {
+                    KillResult { success: true, error: None }
+                } else {
+                    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                    KillResult {
+                        success: false,
+                        error: Some(stderr.trim().to_string())
+                    }
+                }
+            }
+            Err(e) => KillResult {
+                success: false,
+                error: Some(e.to_string()),
+            },
+        }
+    }
+}
+
+/// Kill a process tree by PID, ignoring the result.
+/// Convenience wrapper around `kill_process_tree` for fire-and-forget scenarios.
+pub fn kill_process_tree_silent(pid: u32) {
+    let _ = kill_process_tree(pid);
 }
 
 pub struct ProcessManager {
@@ -167,6 +243,7 @@ impl ProcessManager {
         );
 
         // Start process - on Windows, run through cmd.exe to handle .cmd scripts
+        // Use CREATE_NO_WINDOW to prevent console window from appearing
         #[cfg(target_os = "windows")]
         let mut child = Command::new("cmd")
             .args(["/C", &command_with_port])
@@ -174,6 +251,7 @@ impl ProcessManager {
             .envs(&env_vars)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| ProcessError::StartError(e.to_string()))?;
 

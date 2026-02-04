@@ -20,8 +20,11 @@ import {
   Bell,
   HardDrive,
   Network,
+  Download,
+  Sparkles,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "@/stores/settingsStore";
 import {
   THEME_LABELS,
@@ -64,6 +67,31 @@ export function SettingsView() {
   const [cleanupSuccess, setCleanupSuccess] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // Update state
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] = useState<{
+    updateAvailable: boolean;
+    currentVersion: string;
+    latestVersion: string | null;
+    updateInfo: {
+      version: string;
+      downloadUrl: string;
+      releaseNotes: string;
+      publishedAt: string;
+      isPrerelease: boolean;
+      assetName: string | null;
+      assetSize: number | null;
+    } | null;
+    error: string | null;
+  } | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    downloadedBytes: number;
+    totalBytes: number;
+    percentage: number;
+  } | null>(null);
+  const [downloadedFilePath, setDownloadedFilePath] = useState<string | null>(null);
+
   // Orphan hosts state
   const [orphanHosts, setOrphanHosts] = useState<Array<{ domain: string; ip: string; comment: string | null }>>([]);
   const [isLoadingOrphans, setIsLoadingOrphans] = useState(false);
@@ -74,6 +102,75 @@ export function SettingsView() {
   useEffect(() => {
     loadOrphanHosts();
   }, []);
+
+  // Listen for download progress
+  useEffect(() => {
+    const unlisten = listen<{ downloadedBytes: number; totalBytes: number; percentage: number }>(
+      "download-progress",
+      (event) => {
+        setDownloadProgress(event.payload);
+      }
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const handleCheckForUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateCheckResult(null);
+    try {
+      const result = await invoke<typeof updateCheckResult>("check_for_updates");
+      setUpdateCheckResult(result);
+    } catch (err) {
+      console.error("Failed to check for updates:", err);
+      setUpdateCheckResult({
+        updateAvailable: false,
+        currentVersion: appInfo.version,
+        latestVersion: null,
+        updateInfo: null,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    if (!updateCheckResult?.updateInfo) return;
+
+    setIsDownloading(true);
+    setDownloadProgress(null);
+    setDownloadedFilePath(null);
+    try {
+      const filePath = await invoke<string>("download_update_with_progress", {
+        updateInfo: updateCheckResult.updateInfo,
+      });
+      setDownloadedFilePath(filePath);
+    } catch (err) {
+      console.error("Failed to download update:", err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!downloadedFilePath) return;
+    try {
+      await invoke("install_update_and_quit", { filePath: downloadedFilePath });
+    } catch (err) {
+      console.error("Failed to install update:", err);
+    }
+  };
+
+  const handleOpenReleasesPage = async () => {
+    try {
+      const url = await invoke<string>("get_releases_url");
+      await invoke("open_in_browser", { url });
+    } catch (err) {
+      console.error("Failed to open releases page:", err);
+    }
+  };
 
   const loadOrphanHosts = async () => {
     setIsLoadingOrphans(true);
@@ -705,18 +802,19 @@ export function SettingsView() {
           {/* Backup & Restore */}
           <BackupPanel />
 
-          {/* About */}
+          {/* About & Updates */}
           <section className="bg-slate-900 border border-slate-800 rounded-lg p-6">
             <div className="flex items-center gap-2 mb-4">
               <Info className="text-slate-400" size={20} />
-              <h2 className="text-lg font-semibold text-white">About</h2>
+              <h2 className="text-lg font-semibold text-white">About & Updates</h2>
             </div>
 
             <div className="space-y-4">
+              {/* Version Info */}
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-slate-400">Version:</span>
-                  <span className="ml-2 text-white">{appInfo.version}</span>
+                  <span className="ml-2 text-white font-semibold">{appInfo.version}</span>
                 </div>
                 <div>
                   <span className="text-slate-400">Tauri:</span>
@@ -734,20 +832,134 @@ export function SettingsView() {
                 </div>
               </div>
 
+              {/* Update Check Section */}
+              <div className="pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-white font-medium">Software Updates</h3>
+                    <p className="text-sm text-slate-400">Check for new versions of ClickDevPort</p>
+                  </div>
+                  <button
+                    onClick={handleCheckForUpdates}
+                    disabled={isCheckingUpdate}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {isCheckingUpdate ? (
+                      <Loader2 size={18} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={18} />
+                    )}
+                    Check for Updates
+                  </button>
+                </div>
+
+                {/* Update Check Result */}
+                {updateCheckResult && (
+                  <div className="p-4 bg-slate-800/50 rounded-lg space-y-3">
+                    {updateCheckResult.error ? (
+                      <div className="flex items-center gap-2 text-red-400">
+                        <AlertTriangle size={18} />
+                        <span>Failed to check: {updateCheckResult.error}</span>
+                      </div>
+                    ) : updateCheckResult.updateAvailable && updateCheckResult.updateInfo ? (
+                      <>
+                        <div className="flex items-center gap-2 text-green-400">
+                          <Sparkles size={18} />
+                          <span className="font-medium">
+                            New version available: v{updateCheckResult.updateInfo.version}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-400">
+                          Current: v{updateCheckResult.currentVersion} → New: v{updateCheckResult.updateInfo.version}
+                        </p>
+                        {updateCheckResult.updateInfo.releaseNotes && (
+                          <div className="p-3 bg-slate-900 rounded border border-slate-700 max-h-32 overflow-y-auto">
+                            <p className="text-xs text-slate-500 mb-1">Release Notes:</p>
+                            <p className="text-sm text-slate-300 whitespace-pre-wrap">
+                              {updateCheckResult.updateInfo.releaseNotes}
+                            </p>
+                          </div>
+                        )}
+                        {updateCheckResult.updateInfo.assetSize && (
+                          <p className="text-xs text-slate-500">
+                            Download size: {(updateCheckResult.updateInfo.assetSize / 1024 / 1024).toFixed(1)} MB
+                          </p>
+                        )}
+
+                        {/* Download Progress */}
+                        {isDownloading && downloadProgress && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-slate-400">Downloading...</span>
+                              <span className="text-white">{downloadProgress.percentage.toFixed(0)}%</span>
+                            </div>
+                            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-blue-500 transition-all"
+                                style={{ width: `${downloadProgress.percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Download/Install Buttons */}
+                        <div className="flex items-center gap-3 pt-2">
+                          {!downloadedFilePath ? (
+                            <button
+                              onClick={handleDownloadUpdate}
+                              disabled={isDownloading}
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                            >
+                              {isDownloading ? (
+                                <Loader2 size={18} className="animate-spin" />
+                              ) : (
+                                <Download size={18} />
+                              )}
+                              Download Update
+                            </button>
+                          ) : (
+                            <button
+                              onClick={handleInstallUpdate}
+                              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                            >
+                              <Download size={18} />
+                              Install & Restart
+                            </button>
+                          )}
+                          <button
+                            onClick={handleOpenReleasesPage}
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                          >
+                            <ExternalLink size={18} />
+                            View on GitHub
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 text-green-400">
+                        <CheckCircle size={18} />
+                        <span>You're using the latest version (v{updateCheckResult.currentVersion})</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Links */}
               <div className="pt-4 border-t border-slate-800 flex gap-4">
+                <button
+                  onClick={handleOpenReleasesPage}
+                  className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-sm transition-colors"
+                >
+                  <ExternalLink size={14} />
+                  Releases
+                </button>
                 <a
                   href="#"
                   className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-sm transition-colors"
                 >
                   <ExternalLink size={14} />
                   Documentation
-                </a>
-                <a
-                  href="#"
-                  className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-sm transition-colors"
-                >
-                  <ExternalLink size={14} />
-                  GitHub Repository
                 </a>
                 <a
                   href="#"
