@@ -181,24 +181,39 @@ impl Service {
     }
 
     /// 가능한 MySQL/MariaDB 설치 경로들을 검색
-    fn find_mysql_path() -> Option<(String, String)> {
-        // (base_path, executable)
+    /// 반환값: (base_path, executable, config_path)
+    fn find_mysql_path() -> Option<(String, String, String)> {
+        // (base_path, executable, primary_config)
         let possible_paths = [
-            // XAMPP (가장 일반적)
-            ("C:\\xampp\\mysql", "C:\\xampp\\mysql\\bin\\mysqld.exe"),
+            // XAMPP (가장 일반적) - my.ini가 bin 폴더에 있음
+            ("C:\\xampp\\mysql", "C:\\xampp\\mysql\\bin\\mysqld.exe", "C:\\xampp\\mysql\\bin\\my.ini"),
             // XAMPP 다른 드라이브
-            ("D:\\xampp\\mysql", "D:\\xampp\\mysql\\bin\\mysqld.exe"),
+            ("D:\\xampp\\mysql", "D:\\xampp\\mysql\\bin\\mysqld.exe", "D:\\xampp\\mysql\\bin\\my.ini"),
             // DevPort 커스텀 경로
-            ("C:\\DevPort\\runtime\\mariadb", "C:\\DevPort\\runtime\\mariadb\\bin\\mysqld.exe"),
+            ("C:\\DevPort\\runtime\\mariadb", "C:\\DevPort\\runtime\\mariadb\\bin\\mysqld.exe", "C:\\DevPort\\runtime\\mariadb\\data\\my.ini"),
             // Laragon MariaDB
-            ("C:\\laragon\\bin\\mariadb", "C:\\laragon\\bin\\mariadb\\bin\\mysqld.exe"),
+            ("C:\\laragon\\bin\\mariadb", "C:\\laragon\\bin\\mariadb\\bin\\mysqld.exe", "C:\\laragon\\bin\\mariadb\\my.ini"),
             // WampServer
-            ("C:\\wamp64\\bin\\mariadb", "C:\\wamp64\\bin\\mariadb\\mariadb10.11.4\\bin\\mysqld.exe"),
+            ("C:\\wamp64\\bin\\mariadb", "C:\\wamp64\\bin\\mariadb\\mariadb10.11.4\\bin\\mysqld.exe", "C:\\wamp64\\bin\\mariadb\\mariadb10.11.4\\my.ini"),
         ];
 
-        for (base, exe) in possible_paths {
+        for (base, exe, config) in possible_paths {
             if Path::new(exe).exists() {
-                return Some((base.to_string(), exe.to_string()));
+                // config 파일이 있으면 해당 경로, 없으면 다른 위치에서 검색
+                let config_path = if Path::new(config).exists() {
+                    config.to_string()
+                } else {
+                    // 다른 가능한 위치에서 my.ini 검색
+                    let alt_configs = [
+                        format!("{}\\bin\\my.ini", base),
+                        format!("{}\\my.ini", base),
+                        format!("{}\\data\\my.ini", base),
+                    ];
+                    alt_configs.into_iter()
+                        .find(|path| Path::new(path).exists())
+                        .unwrap_or_default()
+                };
+                return Some((base.to_string(), exe.to_string(), config_path));
             }
         }
         None
@@ -266,9 +281,18 @@ impl Service {
         );
 
         // 설치된 MySQL/MariaDB 경로 자동 감지
-        if let Some((base_path, exe_path)) = Self::find_mysql_path() {
+        if let Some((base_path, exe_path, config_path)) = Self::find_mysql_path() {
             service.executable = exe_path;
-            service.args = vec!["--console".to_string()];
+
+            // 설정 파일 경로를 명시적으로 지정 (XAMPP에서 필수)
+            // --defaults-file must be the FIRST argument for mysqld
+            let mut args = Vec::new();
+            if !config_path.is_empty() {
+                args.push(format!("--defaults-file={}", config_path));
+            }
+            args.push("--console".to_string());
+            service.args = args;
+
             service.work_dir = base_path.clone();
             service.port = 3306;
             service.health_check = HealthCheckConfig {
@@ -283,8 +307,11 @@ impl Service {
                 stderr_path: format!("{}\\data\\mysql_error.log", base_path),
                 ..Default::default()
             };
-            // my.ini 경로는 XAMPP에서는 bin 폴더에 있음
-            let my_ini_path = if Path::new(&format!("{}\\bin\\my.ini", base_path)).exists() {
+
+            // config_files에 사용된 my.ini 경로 저장
+            let my_ini_path = if !config_path.is_empty() {
+                config_path
+            } else if Path::new(&format!("{}\\bin\\my.ini", base_path)).exists() {
                 format!("{}\\bin\\my.ini", base_path)
             } else if Path::new(&format!("{}\\my.ini", base_path)).exists() {
                 format!("{}\\my.ini", base_path)

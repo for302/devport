@@ -67,6 +67,7 @@ pub fn run() {
             // Port commands
             commands::port::scan_ports,
             commands::port::check_port_available,
+            commands::port::suggest_available_port,
             commands::port::get_process_details,
             commands::port::kill_process_by_pid,
             // Health commands
@@ -185,6 +186,9 @@ pub fn run() {
             commands::recovery::is_port_in_use,
             commands::recovery::get_pid_on_port,
             commands::recovery::kill_process,
+            commands::recovery::diagnose_mariadb,
+            commands::recovery::execute_recovery_step,
+            commands::recovery::check_python_installed,
             // Scheduler commands
             commands::scheduler::register_auto_start,
             commands::scheduler::unregister_auto_start,
@@ -220,6 +224,7 @@ pub fn run() {
             commands::uninstaller::perform_uninstall,
             commands::uninstaller::stop_all_for_uninstall,
             commands::uninstaller::check_running_processes,
+            commands::uninstaller::reboot_system,
             // Inventory commands
             commands::inventory::scan_inventory,
             commands::inventory::refresh_inventory_item,

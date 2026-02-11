@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { X, FolderOpen, Loader2, Wand2, Globe, Database, Package } from "lucide-react";
-import { useUiStore, useProjectStore } from "@/stores";
+import { X, FolderOpen, Loader2, Wand2, Globe, Database, Package, Monitor, AppWindow, Copy, Check } from "lucide-react";
+import { useUiStore, useProjectStore, useApacheConfigStore } from "@/stores";
 import { detectProjectType } from "@/services/tauriCommands";
 import type { ProjectType, CreateProjectInput } from "@/types";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -25,6 +25,9 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
   const updateProject = useProjectStore((state) => state.updateProject);
   const getProjectById = useProjectStore((state) => state.getProjectById);
 
+  const projects = useProjectStore((state) => state.projects);
+  const apachePorts = useApacheConfigStore((state) => state.ports);
+
   const editProjectId = modalData.projectId as string | undefined;
   const editProject = editProjectId ? getProjectById(editProjectId) : undefined;
 
@@ -39,6 +42,8 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
   const [autoStart, setAutoStart] = useState(editProject?.autoStart || false);
   const [healthCheckUrl, setHealthCheckUrl] = useState(editProject?.healthCheckUrl || "");
 
+  const [launchMode, setLaunchMode] = useState<"web" | "app">(editProject?.launchMode || "web");
+
   const [domain, setDomain] = useState("");
   const [domainEnabled, setDomainEnabled] = useState(false);
   const [packageManager, setPackageManager] = useState<PackageManager>("pnpm");
@@ -49,6 +54,9 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
   const [isDetecting, setIsDetecting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [portAvailable, setPortAvailable] = useState<boolean | null>(null);
+  const [suggestedPorts, setSuggestedPorts] = useState<number[]>([]);
+  const [pythonWarning, setPythonWarning] = useState<string | null>(null);
+  const [copiedConnectionString, setCopiedConnectionString] = useState(false);
   const [domainCheck, setDomainCheck] = useState<{
     available: boolean;
     valid: boolean;
@@ -87,8 +95,21 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
     try {
       const available = await invoke<boolean>("check_port_available", { port: portNum });
       setPortAvailable(available);
+      // If port is not available or has conflict, fetch suggestions
+      if (!available || projects.some(p => p.port === portNum && (!isEdit || p.id !== editProjectId))) {
+        const excludePorts = projects.map(p => p.port);
+        const suggestions = await invoke<number[]>("suggest_available_port", {
+          preferredPort: portNum,
+          portType: "project",
+          excludePorts,
+        });
+        setSuggestedPorts(suggestions);
+      } else {
+        setSuggestedPorts([]);
+      }
     } catch {
       setPortAvailable(null);
+      setSuggestedPorts([]);
     }
   };
 
@@ -104,6 +125,16 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
       setDomainCheck(null);
     }
   };
+
+  // Port conflict detection (registered ports — not netstat)
+  const portNum = parseInt(port, 10);
+  const conflictProject = !isNaN(portNum) && portNum > 0
+    ? projects.find(p => p.port === portNum && (!isEdit || p.id !== editProjectId))
+    : null;
+  const conflictApache = !isNaN(portNum) && portNum > 0
+    ? apachePorts.find(p => p.port === portNum && p.hasVhostBlock)
+    : null;
+  const hasPortConflict = !!conflictProject || !!conflictApache;
 
   const handleSelectFolder = async () => {
     try {
@@ -143,6 +174,12 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
       setStartCommand(detected.startCommand);
       setPort(detected.defaultPort.toString());
       setGithubUrl(detected.githubUrl);
+      // Auto-set launch mode based on detected project type
+      if (["tauri", "electron"].includes(detected.projectType)) {
+        setLaunchMode("app");
+      } else {
+        setLaunchMode("web");
+      }
       console.log("Detection complete, UI updated");
     } catch (err) {
       console.error("Detection failed:", err);
@@ -156,6 +193,16 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
     setProjectType(type);
     setPort(getDefaultPort(type).toString());
     setStartCommand(getDefaultCommand(type));
+
+    // Check Python installation for Python frameworks
+    const pythonTypes = ["python", "django", "flask", "fastapi", "pythontkinter", "pythonpyqt", "pythonwx", "pythonpygame", "pythonkivy"];
+    if (pythonTypes.includes(type)) {
+      invoke("check_python_installed")
+        .then(() => setPythonWarning(null))
+        .catch(() => setPythonWarning("Python이 설치되어 있지 않습니다. python.org에서 설치해주세요."));
+    } else {
+      setPythonWarning(null);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -172,6 +219,7 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
           startCommand,
           autoStart,
           healthCheckUrl: healthCheckUrl || null,
+          launchMode,
         });
       } else {
         const input: CreateProjectInput = {
@@ -184,6 +232,9 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
           healthCheckUrl: healthCheckUrl || null,
           domain: domainEnabled && domain ? domain : null,  // Only use if enabled
           githubUrl,
+          launchMode: NO_PORT_TYPES.includes(projectType) ? "app" : launchMode,
+          createDatabase,
+          databaseName: createDatabase && databaseName ? databaseName : null,
         };
         await createProject(input);
       }
@@ -241,6 +292,12 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
           {error && (
             <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
               {error}
+            </div>
+          )}
+
+          {pythonWarning && (
+            <div className="p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-yellow-400 text-sm">
+              {pythonWarning}
             </div>
           )}
 
@@ -346,31 +403,88 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
               <label className="block text-sm font-medium text-slate-300 mb-1">
                 Port
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
-                  min={1}
-                  max={65535}
-                  className={`w-full px-3 py-2 bg-slate-900 border rounded-lg text-white
-                    placeholder-slate-500 focus:outline-none ${
-                      portAvailable === false
-                        ? "border-yellow-500"
-                        : portAvailable === true
-                        ? "border-green-500"
-                        : "border-slate-700 focus:border-blue-500"
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="number"
+                    value={port}
+                    onChange={(e) => setPort(e.target.value)}
+                    min={1}
+                    max={65535}
+                    className={`w-full px-3 py-2 bg-slate-900 border rounded-lg text-white
+                      placeholder-slate-500 focus:outline-none ${
+                        hasPortConflict
+                          ? "border-red-500"
+                          : portAvailable === false
+                          ? "border-yellow-500"
+                          : portAvailable === true
+                          ? "border-green-500"
+                          : "border-slate-700 focus:border-blue-500"
+                      }`}
+                    required
+                  />
+                  {portAvailable !== null && (
+                    <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${
+                      portAvailable ? "text-green-400" : "text-yellow-400"
+                    }`}>
+                      {portAvailable ? "Available" : "In use"}
+                    </span>
+                  )}
+                </div>
+                <div className="flex rounded-lg border border-slate-700 overflow-hidden flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setLaunchMode("web")}
+                    className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium transition-colors ${
+                      launchMode === "web"
+                        ? "bg-blue-600 text-white"
+                        : "bg-slate-900 text-slate-400 hover:text-slate-200"
                     }`}
-                  required
-                />
-                {portAvailable !== null && (
-                  <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${
-                    portAvailable ? "text-green-400" : "text-yellow-400"
-                  }`}>
-                    {portAvailable ? "Available" : "In use"}
-                  </span>
-                )}
+                    title="Web mode: open browser on start"
+                  >
+                    <Monitor size={14} />
+                    Web
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLaunchMode("app")}
+                    className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium transition-colors ${
+                      launchMode === "app"
+                        ? "bg-purple-600 text-white"
+                        : "bg-slate-900 text-slate-400 hover:text-slate-200"
+                    }`}
+                    title="App mode: native window (no browser)"
+                  >
+                    <AppWindow size={14} />
+                    App
+                  </button>
+                </div>
               </div>
+              {conflictProject && (
+                <p className="text-xs text-red-400 mt-1">
+                  포트 {portNum}은(는) 프로젝트 "{conflictProject.name}"에서 사용 중입니다.
+                </p>
+              )}
+              {conflictApache && (
+                <p className="text-xs text-red-400 mt-1">
+                  포트 {portNum}은(는) Apache VHost "{conflictApache.domain}"에서 사용 중입니다.
+                </p>
+              )}
+              {(hasPortConflict || portAvailable === false) && suggestedPorts.length > 0 && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className="text-xs text-slate-400">추천:</span>
+                  {suggestedPorts.map((sp) => (
+                    <button
+                      key={sp}
+                      type="button"
+                      onClick={() => setPort(sp.toString())}
+                      className="px-2 py-0.5 text-xs bg-blue-600/20 border border-blue-500/40 text-blue-400 rounded hover:bg-blue-600/30 transition-colors"
+                    >
+                      {sp}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             ) : (
             <div>
@@ -510,7 +624,7 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
               </label>
 
               {createDatabase && (
-                <div className="ml-6">
+                <div className="ml-6 space-y-2">
                   <input
                     type="text"
                     value={databaseName}
@@ -519,7 +633,27 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm
                       placeholder-slate-500 focus:outline-none focus:border-blue-500"
                   />
-                  <p className="mt-1 text-xs text-slate-500">
+                  {databaseName && (
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-2 py-1 bg-slate-900 rounded text-xs text-slate-400 truncate">
+                        mysql://{databaseName}:****@localhost:3306/{databaseName}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const connStr = `mysql://${databaseName}:password@localhost:3306/${databaseName}`;
+                          await navigator.clipboard.writeText(connStr);
+                          setCopiedConnectionString(true);
+                          setTimeout(() => setCopiedConnectionString(false), 2000);
+                        }}
+                        className="p-1 text-slate-400 hover:text-blue-400 transition-colors flex-shrink-0"
+                        title="Copy connection string"
+                      >
+                        {copiedConnectionString ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-500">
                     A dedicated user will be created with full access to this database
                   </p>
                 </div>
@@ -551,7 +685,7 @@ export function AddProjectModal({ isEdit = false }: AddProjectModalProps) {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || hasPortConflict}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium
                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >

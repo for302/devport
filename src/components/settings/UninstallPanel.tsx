@@ -16,6 +16,7 @@ import {
   Key,
   ChevronDown,
   ChevronUp,
+  RotateCcw,
 } from "lucide-react";
 import {
   UninstallMode,
@@ -423,6 +424,7 @@ interface UninstallCompleteProps {
 
 function UninstallComplete({ result }: UninstallCompleteProps) {
   const [showDetails, setShowDetails] = useState(false);
+  const [rebootDismissed, setRebootDismissed] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -436,11 +438,6 @@ function UninstallComplete({ result }: UninstallCompleteProps) {
             <p className="text-sm text-green-400/70 mt-1">
               ClickDevPort has been successfully removed from your system.
             </p>
-            {result.requiresReboot && (
-              <p className="text-sm text-amber-400 mt-2">
-                A system restart may be required to complete the cleanup.
-              </p>
-            )}
           </div>
         </div>
       ) : (
@@ -454,6 +451,43 @@ function UninstallComplete({ result }: UninstallCompleteProps) {
               Some items could not be removed. You may need to delete them
               manually or restart your computer.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Reboot Required Banner */}
+      {result.requiresReboot && !rebootDismissed && (
+        <div className="p-4 bg-amber-900/20 border border-amber-700 rounded-lg">
+          <div className="flex items-start gap-3">
+            <RotateCcw className="text-amber-400 shrink-0 mt-0.5" size={20} />
+            <div className="flex-1">
+              <p className="text-amber-400 font-medium">
+                Reboot Required
+              </p>
+              <p className="text-sm text-amber-400/70 mt-1">
+                Some files were in use and have been scheduled for deletion on next reboot.
+              </p>
+              <div className="flex gap-3 mt-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      await invoke("reboot_system", { delaySeconds: 5 });
+                    } catch (err) {
+                      console.error("Reboot failed:", err);
+                    }
+                  }}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  Reboot Now
+                </button>
+                <button
+                  onClick={() => setRebootDismissed(true)}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+                >
+                  Reboot Later
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

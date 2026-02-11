@@ -34,6 +34,7 @@ export interface Project {
   healthCheckUrl: string | null;
   domain: string | null;  // Custom domain for hosts file (e.g., "my-app.test")
   githubUrl: string | null;  // GitHub repository URL
+  launchMode: "web" | "app";  // "web" = open browser, "app" = native window
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +49,9 @@ export interface CreateProjectInput {
   healthCheckUrl?: string | null;
   domain?: string | null;  // Custom domain for hosts file
   githubUrl?: string | null;  // GitHub repository URL
+  launchMode?: "web" | "app";
+  createDatabase?: boolean;
+  databaseName?: string | null;
 }
 
 export interface UpdateProjectInput {
@@ -57,6 +61,7 @@ export interface UpdateProjectInput {
   startCommand?: string;
   autoStart?: boolean;
   healthCheckUrl?: string | null;
+  launchMode?: "web" | "app";
 }
 
 export interface DetectedProjectInfo {

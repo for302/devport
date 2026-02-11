@@ -18,6 +18,7 @@ const SERVICE_COLORS: Record<string, string> = {
   Apache: "text-orange-400",
   MariaDB: "text-blue-400",
   MySQL: "text-blue-400",
+  "MySQL/MariaDB": "text-blue-400",
   System: "text-purple-400",
 };
 
@@ -90,7 +91,12 @@ export function ServiceActivityLog({ isExpanded, onToggleExpand }: ServiceActivi
                   <span className={`shrink-0 font-semibold ${getServiceColor(log.service)}`}>
                     [{log.service}]
                   </span>
-                  <span className={log.level === "error" ? "text-red-400" : log.level === "warning" ? "text-yellow-400" : "text-slate-300"}>
+                  <span className={
+                    log.level === "error" ? "text-red-400" :
+                    log.level === "warning" ? "text-yellow-400" :
+                    log.level === "success" ? "text-green-400" :
+                    "text-slate-300"
+                  }>
                     {log.message}
                   </span>
                 </div>

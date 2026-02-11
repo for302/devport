@@ -8,6 +8,7 @@ pub mod health_checker;
 pub mod hosts_manager;
 pub mod inventory_scanner;
 pub mod log_manager;
+pub mod mariadb_diagnostics;
 pub mod port_scanner;
 pub mod process_manager;
 pub mod project_detector;

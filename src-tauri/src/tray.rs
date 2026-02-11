@@ -4,7 +4,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
 };
 use tokio::sync::Mutex;
 
@@ -75,14 +75,47 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
             }
         }
         "quit" => {
-            // Exit without stopping services - let external services continue running
-            app.exit(0);
+            let app_handle = app.clone();
+            tokio::spawn(async move {
+                // Notify frontend about shutdown
+                let _ = app_handle.emit("app-shutting-down", ());
+
+                // Stop all services via ServiceManager
+                if let Some(service_manager) = app_handle.try_state::<Arc<Mutex<ServiceManager>>>() {
+                    let mut sm = service_manager.lock().await;
+                    let _ = sm.stop_service("apache").await;
+                    let _ = sm.stop_service("mariadb").await;
+                }
+
+                // Wait for processes to terminate
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+                // Force kill any remaining service processes
+                force_kill_services();
+
+                // Exit app
+                app_handle.exit(0);
+            });
         }
         _ => {}
     }
 }
 
-// Note: stop_all_services_and_quit function removed - app should not stop external services
+/// Force kill remaining service processes on shutdown
+fn force_kill_services() {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        for process_name in &["httpd.exe", "mysqld.exe", "mariadbd.exe"] {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/IM", process_name])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
+    }
+}
 
 /// Update the tray icon based on service status
 /// Call this function when service status changes

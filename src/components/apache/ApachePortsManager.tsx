@@ -1,15 +1,27 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   RefreshCw,
   Plus,
   AlertTriangle,
   Server,
   Loader2,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { useApacheConfigStore, useServiceStore } from "@/stores";
 import { ApachePortListItem } from "./ApachePortListItem";
 import { ApachePortModal } from "./ApachePortModal";
 import type { ApachePortEntry } from "@/types";
+
+type VHostSortKey = "name" | "domain" | "root" | "port";
+type SortDir = "asc" | "desc";
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return null;
+  return dir === "asc"
+    ? <ArrowDown size={12} className="inline ml-0.5" />
+    : <ArrowUp size={12} className="inline ml-0.5" />;
+}
 
 interface ApachePortsManagerProps {
   compact?: boolean;
@@ -36,6 +48,32 @@ export function ApachePortsManager({ compact = false }: ApachePortsManagerProps)
   const [editEntry, setEditEntry] = useState<ApachePortEntry | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ApachePortEntry | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Sort state
+  const [sortKey, setSortKey] = useState<VHostSortKey>("domain");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toggleSort = (key: VHostSortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedPorts = useMemo(() => {
+    const sorted = [...ports];
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "name") cmp = (a.name || "").localeCompare(b.name || "");
+      else if (sortKey === "domain") cmp = a.domain.localeCompare(b.domain);
+      else if (sortKey === "root") cmp = a.documentRoot.localeCompare(b.documentRoot);
+      else if (sortKey === "port") cmp = a.port - b.port;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [ports, sortKey, sortDir]);
 
   useEffect(() => {
     fetchApacheBasePath();
@@ -162,10 +200,25 @@ export function ApachePortsManager({ compact = false }: ApachePortsManagerProps)
           <div className="flex items-center gap-4 px-4 py-2 bg-slate-900 border-b border-slate-700 text-xs text-slate-400 uppercase tracking-wider">
             <div className="w-2 flex-shrink-0" />
             <div className="w-16 flex-shrink-0">Framework</div>
-            <div className="w-32 min-w-[8rem] flex-shrink-0">Domain</div>
-            <div className="hidden lg:flex flex-1 min-w-0">Document Root</div>
-            <div className="w-16 text-center flex-shrink-0">Port</div>
-            <div className="w-32 text-center flex-shrink-0">Quick Actions</div>
+            <div
+              className="w-32 min-w-[8rem] flex-shrink-0 cursor-pointer select-none hover:text-slate-200 transition-colors"
+              onClick={() => toggleSort("domain")}
+            >
+              Domain<SortIcon active={sortKey === "domain"} dir={sortDir} />
+            </div>
+            <div
+              className="hidden lg:flex flex-1 min-w-0 cursor-pointer select-none hover:text-slate-200 transition-colors"
+              onClick={() => toggleSort("root")}
+            >
+              Document Root<SortIcon active={sortKey === "root"} dir={sortDir} />
+            </div>
+            <div
+              className="w-16 text-center flex-shrink-0 cursor-pointer select-none hover:text-slate-200 transition-colors"
+              onClick={() => toggleSort("port")}
+            >
+              Port<SortIcon active={sortKey === "port"} dir={sortDir} />
+            </div>
+            <div className="w-48 text-center flex-shrink-0">Quick Actions</div>
             <div className="w-px h-4 flex-shrink-0" />
             <div className="w-16 text-center flex-shrink-0">Config</div>
             <div className="w-px h-4 flex-shrink-0" />
@@ -173,7 +226,7 @@ export function ApachePortsManager({ compact = false }: ApachePortsManagerProps)
           </div>
           {/* List Items */}
           <div>
-            {ports.map((entry) => (
+            {sortedPorts.map((entry) => (
               <ApachePortListItem
                 key={entry.id}
                 entry={entry}

@@ -5,6 +5,7 @@ import { SetupWizard } from "./components/installer/SetupWizard";
 import { Loader2 } from "lucide-react";
 import type { InstalledComponent } from "./types";
 import { useUpdaterStore, useUiStore } from "./stores";
+import { initServiceLogListener } from "./stores/serviceStore";
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -16,6 +17,13 @@ function App() {
 
   useEffect(() => {
     checkFirstRun();
+
+    // Initialize service log listener for real-time log streaming
+    const unlistenPromise = initServiceLogListener();
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
   }, []);
 
   // Check for updates after app loads (only when not in first run)

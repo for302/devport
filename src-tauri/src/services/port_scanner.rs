@@ -136,6 +136,75 @@ impl PortScanner {
         Some(parts[0].trim_matches('"').to_string())
     }
 
+    /// Find available ports starting from start_port, excluding specified ports
+    pub fn find_available_port(start_port: u16, end_port: u16, exclude: &[u16]) -> Option<u16> {
+        for port in start_port..=end_port {
+            if exclude.contains(&port) {
+                continue;
+            }
+            if Self::is_port_available(port) {
+                return Some(port);
+            }
+        }
+        None
+    }
+
+    /// Find multiple available ports for suggestion
+    pub fn suggest_ports(preferred_port: u16, port_type: &str, exclude: &[u16]) -> Vec<u16> {
+        let (range_start, range_end) = match port_type {
+            "apache" => (8080, 8099),
+            "mariadb" => (3306, 3399),
+            _ => (3000, 3999), // project
+        };
+
+        let mut suggestions = Vec::new();
+
+        // First try the preferred port
+        if preferred_port >= range_start
+            && preferred_port <= range_end
+            && !exclude.contains(&preferred_port)
+            && Self::is_port_available(preferred_port)
+        {
+            suggestions.push(preferred_port);
+        }
+
+        // Then try ports starting from preferred_port + 1
+        let search_start = if preferred_port >= range_start && preferred_port < range_end {
+            preferred_port + 1
+        } else {
+            range_start
+        };
+
+        for port in search_start..=range_end {
+            if suggestions.len() >= 3 {
+                break;
+            }
+            if suggestions.contains(&port) || exclude.contains(&port) {
+                continue;
+            }
+            if Self::is_port_available(port) {
+                suggestions.push(port);
+            }
+        }
+
+        // If we still need more, search from range_start
+        if suggestions.len() < 3 {
+            for port in range_start..search_start.min(range_end) {
+                if suggestions.len() >= 3 {
+                    break;
+                }
+                if suggestions.contains(&port) || exclude.contains(&port) {
+                    continue;
+                }
+                if Self::is_port_available(port) {
+                    suggestions.push(port);
+                }
+            }
+        }
+
+        suggestions
+    }
+
     pub fn is_port_available(port: u16) -> bool {
         #[cfg(windows)]
         let output = Command::new("netstat")

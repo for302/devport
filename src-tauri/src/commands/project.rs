@@ -1,10 +1,13 @@
 use crate::models::{Project, ProjectType};
+use crate::services::database_manager::DatabaseManager;
 use crate::services::hosts_manager::HostsManager;
 use crate::services::project_detector::ProjectDetector;
 use crate::services::storage::Storage;
 use crate::services::SharedProjectWatcher;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tauri::State;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +22,15 @@ pub struct CreateProjectInput {
     pub health_check_url: Option<String>,
     pub domain: Option<String>,
     pub github_url: Option<String>,
+    #[serde(default = "default_launch_mode")]
+    pub launch_mode: String,
+    #[serde(default)]
+    pub create_database: bool,
+    pub database_name: Option<String>,
+}
+
+fn default_launch_mode() -> String {
+    "web".to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,6 +42,7 @@ pub struct UpdateProjectInput {
     pub start_command: Option<String>,
     pub auto_start: Option<bool>,
     pub health_check_url: Option<String>,
+    pub launch_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,11 +86,15 @@ pub fn get_projects() -> Result<Vec<Project>, String> {
 }
 
 #[tauri::command]
-pub fn create_project(
+pub async fn create_project(
     input: CreateProjectInput,
     project_watcher: State<'_, SharedProjectWatcher>,
+    database_manager: State<'_, Arc<Mutex<DatabaseManager>>>,
 ) -> Result<Project, String> {
     let storage = Storage::new().map_err(|e| e.to_string())?;
+
+    let project_path = if input.create_database { Some(input.path.clone()) } else { None };
+    let project_type_clone = input.project_type.clone();
 
     let project = Project::new(
         input.name.clone(),
@@ -92,6 +109,7 @@ pub fn create_project(
     project.health_check_url = input.health_check_url;
     project.domain = input.domain.clone();
     project.github_url = input.github_url;
+    project.launch_mode = input.launch_mode;
 
     // Add hosts entry if domain is provided
     if let Some(ref domain) = input.domain {
@@ -107,6 +125,34 @@ pub fn create_project(
         }
     }
 
+    // Create database if requested
+    if input.create_database {
+        if let Some(ref db_name) = input.database_name {
+            if !db_name.is_empty() {
+                let db_manager = database_manager.lock().await;
+                let db_username = db_name.clone();
+                let db_password = generate_db_password();
+
+                match db_manager.create_database_with_user(db_name, &db_username, &db_password) {
+                    Ok(creds) => {
+                        // Inject DB environment variables into .env file
+                        if let Some(ref proj_path) = project_path {
+                            let _ = inject_db_env_vars(
+                                proj_path,
+                                &project_type_clone,
+                                &creds,
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create database: {}", e);
+                        // Don't fail project creation if DB creation fails
+                    }
+                }
+            }
+        }
+    }
+
     let created_project = storage.create_project(project).map_err(|e| e.to_string())?;
 
     // Start watching the new project
@@ -115,6 +161,69 @@ pub fn create_project(
     }
 
     Ok(created_project)
+}
+
+/// Generate a random password for database user
+fn generate_db_password() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("dp_{:x}", seed & 0xFFFFFFFFFFFF)
+}
+
+/// Inject database environment variables into the project's .env file
+fn inject_db_env_vars(
+    project_path: &str,
+    project_type: &ProjectType,
+    creds: &crate::services::database_manager::DatabaseCredentials,
+) -> Result<(), String> {
+    let path = std::path::Path::new(project_path);
+    let env_path = path.join(".env");
+
+    let connection_url = format!(
+        "mysql://{}:{}@{}:{}/{}",
+        creds.username, creds.password, creds.host, creds.port, creds.database
+    );
+
+    // Build env vars based on framework type
+    let mut new_vars: Vec<(String, String)> = Vec::new();
+
+    match project_type {
+        ProjectType::Django | ProjectType::Flask | ProjectType::FastApi
+        | ProjectType::Python | ProjectType::NextJs | ProjectType::Node
+        | ProjectType::Express | ProjectType::Vite | ProjectType::React => {
+            new_vars.push(("DATABASE_URL".to_string(), connection_url));
+        }
+        _ => {
+            // Generic: provide both DATABASE_URL and individual vars
+            new_vars.push(("DATABASE_URL".to_string(), connection_url));
+            new_vars.push(("DB_HOST".to_string(), creds.host.clone()));
+            new_vars.push(("DB_PORT".to_string(), creds.port.to_string()));
+            new_vars.push(("DB_DATABASE".to_string(), creds.database.clone()));
+            new_vars.push(("DB_USERNAME".to_string(), creds.username.clone()));
+            new_vars.push(("DB_PASSWORD".to_string(), creds.password.clone()));
+        }
+    }
+
+    // Read existing .env or create new
+    let mut content = if env_path.exists() {
+        std::fs::read_to_string(&env_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Append new vars
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str("\n# Database (auto-generated by DevPort)\n");
+    for (key, value) in &new_vars {
+        content.push_str(&format!("{}={}\n", key, value));
+    }
+
+    std::fs::write(&env_path, content).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -127,6 +236,12 @@ pub fn update_project(input: UpdateProjectInput) -> Result<Project, String> {
         project.name = name;
     }
     if let Some(port) = input.port {
+        // Tauri: sync port to config files (tauri.conf.json + vite.config.ts)
+        if matches!(project.project_type, ProjectType::Tauri) && port != project.port {
+            let project_path = std::path::Path::new(&project.path);
+            ProjectDetector::update_tauri_port(project_path, port)
+                .map_err(|e| format!("Failed to update port config: {}", e))?;
+        }
         project.port = port;
     }
     if let Some(start_command) = input.start_command {
@@ -137,6 +252,9 @@ pub fn update_project(input: UpdateProjectInput) -> Result<Project, String> {
     }
     if let Some(health_check_url) = input.health_check_url {
         project.health_check_url = Some(health_check_url);
+    }
+    if let Some(launch_mode) = input.launch_mode {
+        project.launch_mode = launch_mode;
     }
 
     project.updated_at = chrono::Utc::now().to_rfc3339();

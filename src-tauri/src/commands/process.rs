@@ -1,5 +1,7 @@
 use crate::models::process_info::ProcessInfo;
+use crate::models::ProjectType;
 use crate::services::process_manager::{ProcessManager, kill_process_tree_silent};
+use crate::services::project_detector::ProjectDetector;
 use crate::services::storage::Storage;
 use crate::state::AppState;
 use std::sync::Arc;
@@ -13,7 +15,19 @@ pub async fn start_project(
     app_handle: AppHandle,
 ) -> Result<ProcessInfo, String> {
     let storage = Storage::new().map_err(|e| e.to_string())?;
-    let project = storage.get_project(&project_id).map_err(|e| e.to_string())?;
+    let mut project = storage.get_project(&project_id).map_err(|e| e.to_string())?;
+
+    // Tauri project: sync port from tauri.conf.json devUrl
+    if matches!(project.project_type, ProjectType::Tauri) {
+        let project_path = std::path::Path::new(&project.path);
+        if let Some(actual_port) = ProjectDetector::read_tauri_port(project_path) {
+            if project.port != actual_port {
+                project.port = actual_port;
+                project.updated_at = chrono::Utc::now().to_rfc3339();
+                let _ = storage.update_project(project.clone());
+            }
+        }
+    }
 
     let mut app_state = state.lock().await;
     let mut process_manager = ProcessManager::new();

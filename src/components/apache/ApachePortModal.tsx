@@ -8,7 +8,7 @@ import {
   Plus,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useApacheConfigStore } from "@/stores";
+import { useApacheConfigStore, useProjectStore } from "@/stores";
 import type { ApachePortEntry, ApacheVHostRequest } from "@/types";
 
 interface ApachePortModalProps {
@@ -18,35 +18,55 @@ interface ApachePortModalProps {
 }
 
 export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalProps) {
-  const { createVHost, updateVHost, checkDocumentRoot, createDocumentRoot, apacheBasePath } =
+  const { createVHost, updateVHost, checkDocumentRoot, createDocumentRoot, apacheBasePath, ports } =
     useApacheConfigStore();
 
+  const [name, setName] = useState(editEntry?.name || "");
   const [port, setPort] = useState(editEntry?.port?.toString() || "80");
   const [domain, setDomain] = useState(editEntry?.domain || "localhost");
   const [documentRoot, setDocumentRoot] = useState(editEntry?.documentRoot || "");
   const [serverAlias, setServerAlias] = useState(editEntry?.serverAlias?.join(" ") || "");
   const [isSsl, setIsSsl] = useState(editEntry?.isSsl || false);
+  const [serviceUrl, setServiceUrl] = useState(editEntry?.serviceUrl || "");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingRoot, setIsCheckingRoot] = useState(false);
   const [rootExists, setRootExists] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const projects = useProjectStore((state) => state.projects);
+
+  // Port duplicate check (only actual VHost blocks, exclude Listen-only and self when editing)
+  const portNum = parseInt(port, 10);
+  const isPortDuplicate = !isNaN(portNum) && ports.some(
+    p => p.port === portNum && p.hasVhostBlock && (!editEntry || p.id !== editEntry.id)
+  );
+
+  // Project port conflict check
+  const conflictProject = !isNaN(portNum) && portNum > 0
+    ? projects.find(p => p.port === portNum)
+    : null;
+  const hasPortConflict = isPortDuplicate || !!conflictProject;
+
   // Reset form when modal opens/closes or editEntry changes
   useEffect(() => {
     if (isOpen) {
       if (editEntry) {
+        setName(editEntry.name || "");
         setPort(editEntry.port.toString());
         setDomain(editEntry.domain);
         setDocumentRoot(editEntry.documentRoot);
         setServerAlias(editEntry.serverAlias.join(" "));
         setIsSsl(editEntry.isSsl);
+        setServiceUrl(editEntry.serviceUrl || "");
       } else {
+        setName("");
         setPort("80");
         setDomain("localhost");
         setDocumentRoot(apacheBasePath ? `${apacheBasePath}\\htdocs` : "");
         setServerAlias("");
         setIsSsl(false);
+        setServiceUrl("");
       }
       setError(null);
       setRootExists(null);
@@ -107,6 +127,24 @@ export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalP
       return;
     }
 
+    // Block duplicate port (safety check — also enforced by disabled button)
+    const duplicateEntry = ports.find(
+      p => p.port === portNum && p.hasVhostBlock && (!editEntry || p.id !== editEntry.id)
+    );
+    if (duplicateEntry) {
+      setError(`포트 ${portNum}은(는) 이미 사용 중입니다 (${duplicateEntry.domain})`);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Block port conflict with projects
+    const projectConflict = projects.find(p => p.port === portNum);
+    if (projectConflict) {
+      setError(`포트 ${portNum}은(는) 프로젝트 "${projectConflict.name}"에서 사용 중입니다`);
+      setIsSubmitting(false);
+      return;
+    }
+
     if (!domain.trim()) {
       setError("Domain is required");
       setIsSubmitting(false);
@@ -120,6 +158,7 @@ export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalP
     }
 
     const request: ApacheVHostRequest = {
+      name: name.trim(),
       port: portNum,
       domain: domain.trim(),
       documentRoot: documentRoot.trim(),
@@ -127,6 +166,7 @@ export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalP
         .split(/\s+/)
         .filter((s) => s.trim() !== ""),
       isSsl,
+      serviceUrl: serviceUrl.trim() || undefined,
     };
 
     try {
@@ -167,6 +207,23 @@ export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalP
             </div>
           )}
 
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              Name (Display Name)
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Project"
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white
+                placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional: A friendly name to identify this VirtualHost
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-1">
@@ -178,10 +235,26 @@ export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalP
                 onChange={(e) => setPort(e.target.value)}
                 min={1}
                 max={65535}
-                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white
-                  placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className={`w-full px-3 py-2 bg-slate-900 border rounded-lg text-white
+                  placeholder-slate-500 focus:outline-none ${
+                    hasPortConflict
+                      ? "border-red-500"
+                      : "border-slate-700 focus:border-blue-500"
+                  }`}
                 required
               />
+              {isPortDuplicate && (
+                <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} />
+                  포트 {port}은(는) 이미 사용 중입니다. 다른 포트를 입력하세요.
+                </p>
+              )}
+              {conflictProject && (
+                <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+                  <AlertCircle size={12} />
+                  포트 {port}은(는) 프로젝트 "{conflictProject.name}"에서 사용 중입니다.
+                </p>
+              )}
             </div>
 
             <div>
@@ -282,6 +355,23 @@ export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalP
             </p>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-1">
+              Service URL (실제 서비스 URL)
+            </label>
+            <input
+              type="url"
+              value={serviceUrl}
+              onChange={(e) => setServiceUrl(e.target.value)}
+              placeholder="https://mysite.com"
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white
+                placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional: The production/live URL for this site
+            </p>
+          </div>
+
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -306,7 +396,7 @@ export function ApachePortModal({ isOpen, onClose, editEntry }: ApachePortModalP
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || hasPortConflict}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-medium
                 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >

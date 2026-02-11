@@ -206,8 +206,17 @@ impl ProcessManager {
 
         // Build environment variables
         let mut env_vars = project.env_vars.clone();
-        // Only inject PORT for projects that use it (port > 0)
-        if project.port > 0 {
+        // Only inject PORT for web projects (port > 0)
+        // Tauri/Electron manage their own dev server ports via config files
+        // (e.g., tauri.conf.json devUrl). Injecting PORT causes a port mismatch
+        // where Vite starts on the injected port but the native app waits for the
+        // configured port, preventing the native window from ever launching.
+        if project.port > 0
+            && !matches!(
+                project.project_type,
+                ProjectType::Tauri | ProjectType::Electron
+            )
+        {
             env_vars.insert("PORT".to_string(), project.port.to_string());
         }
         // Flask-specific env var
@@ -282,9 +291,80 @@ impl ProcessManager {
         if let Some(stdout) = stdout {
             let project_id = project_id_clone.clone();
             let app = app_handle_clone.clone();
+            let project_type = project.project_type.clone();
             thread::spawn(move || {
                 let reader = BufReader::new(stdout);
+                let mut launched_notified = false;
                 for line in reader.lines().map_while(Result::ok) {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    let lower = trimmed.to_lowercase();
+
+                    // Detect framework-specific readiness from stdout
+                    if !launched_notified {
+                        let is_ready = match project_type {
+                            ProjectType::Vite | ProjectType::React | ProjectType::Vue | ProjectType::Svelte => {
+                                lower.contains("ready in") || lower.contains("local:")
+                            }
+                            ProjectType::NextJs => {
+                                lower.contains("ready in") || lower.contains("local:")
+                            }
+                            ProjectType::Flask => {
+                                lower.contains("running on")
+                            }
+                            ProjectType::Django => {
+                                lower.contains("starting development server")
+                            }
+                            ProjectType::FastApi => {
+                                lower.contains("application startup complete")
+                            }
+                            ProjectType::Node | ProjectType::Express => {
+                                lower.contains("listening on") || lower.contains("server running")
+                            }
+                            ProjectType::Electron => {
+                                lower.contains("electron") && lower.contains("ready")
+                            }
+                            ProjectType::Angular => {
+                                lower.contains("compiled successfully") || lower.contains("local:")
+                            }
+                            _ => false,
+                        };
+                        if is_ready {
+                            launched_notified = true;
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "launched",
+                                    "message": trimmed
+                                }),
+                            );
+                        }
+                    }
+
+                    // Emit progress for meaningful stdout lines (URL, version, status)
+                    if !launched_notified {
+                        let is_progress =
+                            lower.contains("http://localhost") || lower.contains("http://127.0.0.1")
+                            || lower.contains("vite v") || lower.contains("next.js")
+                            || lower.contains("webpack") || lower.contains("compiled")
+                            || lower.contains("ready in") || lower.contains("starting")
+                            || lower.contains("listening") || lower.contains("running on")
+                            || lower.contains("server running");
+                        if is_progress {
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "progress",
+                                    "message": trimmed
+                                }),
+                            );
+                        }
+                    }
+
                     let _ = app.emit(
                         "process-log",
                         serde_json::json!({
@@ -300,9 +380,121 @@ impl ProcessManager {
         if let Some(stderr) = stderr {
             let project_id = project_id_clone.clone();
             let app = app_handle_clone.clone();
+            let is_tauri = matches!(project.project_type, ProjectType::Tauri);
             thread::spawn(move || {
                 let reader = BufReader::new(stderr);
+                let mut build_notified = false;
+                let mut compile_count: u32 = 0;
                 for line in reader.lines().map_while(Result::ok) {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+
+                    // Detect Tauri/Cargo build status from stderr
+                    if is_tauri {
+                        if trimmed.starts_with("Compiling") {
+                            compile_count += 1;
+                            if !build_notified {
+                                build_notified = true;
+                                let _ = app.emit(
+                                    "build-status",
+                                    serde_json::json!({
+                                        "projectId": project_id,
+                                        "status": "compiling",
+                                        "message": trimmed
+                                    }),
+                                );
+                            } else if compile_count % 20 == 0 {
+                                // Every 20 crates, emit progress so user sees movement
+                                let _ = app.emit(
+                                    "build-status",
+                                    serde_json::json!({
+                                        "projectId": project_id,
+                                        "status": "progress",
+                                        "message": format!("Compiled {} crates... ({})", compile_count, trimmed)
+                                    }),
+                                );
+                            }
+                        } else if trimmed.starts_with("Downloading") || trimmed.starts_with("Downloaded") {
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "progress",
+                                    "message": trimmed
+                                }),
+                            );
+                        } else if trimmed.starts_with("Finished") {
+                            let msg = if compile_count > 0 {
+                                format!("{} ({} crates compiled)", trimmed, compile_count)
+                            } else {
+                                trimmed.to_string()
+                            };
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "compiled",
+                                    "message": msg
+                                }),
+                            );
+                        } else if trimmed.starts_with("Running") {
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "launched",
+                                    "message": trimmed
+                                }),
+                            );
+                        } else if line.contains("error[E") {
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "error",
+                                    "message": trimmed
+                                }),
+                            );
+                        }
+                    } else {
+                        // Non-Tauri: detect build/error from stderr
+                        let lower = trimmed.to_lowercase();
+                        if !build_notified && (lower.contains("building") || lower.contains("bundling") || lower.contains("compiling")) {
+                            build_notified = true;
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "compiling",
+                                    "message": trimmed
+                                }),
+                            );
+                        } else if lower.contains("error:") || lower.contains("error ") && lower.contains("failed") {
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "error",
+                                    "message": trimmed
+                                }),
+                            );
+                        } else if lower.contains("downloading") || lower.contains("installing")
+                            || lower.contains("resolving") || lower.contains("transforming")
+                            || lower.contains("optimizing") || lower.contains("generating")
+                        {
+                            let _ = app.emit(
+                                "build-status",
+                                serde_json::json!({
+                                    "projectId": project_id,
+                                    "status": "progress",
+                                    "message": trimmed
+                                }),
+                            );
+                        }
+                    }
+
                     let _ = app.emit(
                         "process-log",
                         serde_json::json!({
@@ -316,6 +508,15 @@ impl ProcessManager {
         }
 
         self.processes.insert(project_id.clone(), child);
+
+        // Emit starting status (before process-started so UI can show "Starting...")
+        let _ = app_handle.emit(
+            "build-status",
+            serde_json::json!({
+                "projectId": project_id,
+                "status": "starting"
+            }),
+        );
 
         // Emit process started event
         let _ = app_handle.emit(

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::fs;
 use regex::Regex;
+use crate::services::project_detector::ProjectDetector;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +26,7 @@ pub struct ConfigSection {
 #[serde(rename_all = "camelCase")]
 pub struct ApachePortEntry {
     pub id: String,               // Unique ID: "{port}_{domain}"
+    pub name: String,             // User-defined display name
     pub port: u16,
     pub domain: String,           // ServerName (e.g., localhost, mysite.local)
     pub url: String,              // Full URL (e.g., http://localhost:8080)
@@ -33,17 +35,22 @@ pub struct ApachePortEntry {
     pub server_alias: Vec<String>, // ServerAlias entries
     pub config_file: String,      // Which config file this came from
     pub framework: String,        // Detected framework (e.g., "Laravel", "CodeIgniter", "PHP")
+    pub has_vhost_block: bool,    // true if from <VirtualHost> block, false if Listen-only
+    pub service_url: Option<String>,  // Actual service URL (user-registered, e.g., https://mysite.com)
+    pub github_url: Option<String>,   // GitHub repo URL (auto-detected from .git/config)
 }
 
 /// Request structure for creating/updating VirtualHost
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApacheVHostRequest {
+    pub name: String,             // User-defined display name
     pub port: u16,
     pub domain: String,
     pub document_root: String,
     pub server_alias: Vec<String>,
     pub is_ssl: bool,
+    pub service_url: Option<String>,  // Actual service URL
 }
 
 // ============================================================================
@@ -374,19 +381,47 @@ fn parse_apache_vhosts(content: &str, config_file: &str, default_doc_root: &str)
     let doc_root_re = Regex::new(r#"(?i)^\s*DocumentRoot\s+"?([^"]+)"?\s*$"#).unwrap();
     let listen_re = Regex::new(r"(?i)^\s*Listen\s+(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:)?(\d+)").unwrap();
     let global_doc_root_re = Regex::new(r#"(?i)^\s*DocumentRoot\s+"?([^"]+)"?\s*$"#).unwrap();
+    let name_comment_re = Regex::new(r"^\s*#\s*(?:포트\s+\d+\s*-\s*|(?i)@Name:\s*)(.+?)\s*$").unwrap();
+    let service_url_re = Regex::new(r"(?i)^\s*#\s*@ServiceUrl:\s*(.+?)\s*$").unwrap();
 
     let mut in_vhost = false;
     let mut current_port: u16 = 0;
     let mut current_server_name = String::new();
     let mut current_doc_root = String::new();
     let mut current_aliases: Vec<String> = Vec::new();
+    let mut current_name = String::new();
+    let mut current_service_url: Option<String> = None;
+    let mut pending_name = String::new();  // Name from comment before VirtualHost
+    let mut pending_service_url: Option<String> = None;  // ServiceUrl from comment before VirtualHost
     let mut global_doc_root = default_doc_root.to_string();
     let mut listen_ports: Vec<u16> = Vec::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Skip comments
+        // Check for @ServiceUrl comment (can be before or inside VirtualHost)
+        if let Some(caps) = service_url_re.captures(trimmed) {
+            let url = caps.get(1).unwrap().as_str().to_string();
+            if in_vhost {
+                current_service_url = Some(url);
+            } else {
+                pending_service_url = Some(url);
+            }
+            continue;
+        }
+
+        // Check for name comment (can be before or inside VirtualHost)
+        if let Some(caps) = name_comment_re.captures(trimmed) {
+            let name = caps.get(1).unwrap().as_str().to_string();
+            if in_vhost {
+                current_name = name;
+            } else {
+                pending_name = name;
+            }
+            continue;
+        }
+
+        // Skip other comments
         if trimmed.starts_with('#') {
             continue;
         }
@@ -414,6 +449,9 @@ fn parse_apache_vhosts(content: &str, config_file: &str, default_doc_root: &str)
             current_server_name.clear();
             current_doc_root.clear();
             current_aliases.clear();
+            current_name = pending_name.clone();
+            current_service_url = pending_service_url.take();
+            pending_name.clear();
             continue;
         }
 
@@ -431,6 +469,9 @@ fn parse_apache_vhosts(content: &str, config_file: &str, default_doc_root: &str)
                 current_doc_root.clone()
             };
 
+            // Use current_name if set, otherwise empty (will show domain in UI)
+            let name = current_name.clone();
+
             let is_ssl = current_port == 443;
             let protocol = if is_ssl { "https" } else { "http" };
             let url = if (is_ssl && current_port == 443) || (!is_ssl && current_port == 80) {
@@ -442,8 +483,10 @@ fn parse_apache_vhosts(content: &str, config_file: &str, default_doc_root: &str)
             let id = format!("{}_{}", current_port, domain.replace(".", "_"));
             let doc_root_normalized = doc_root.replace("/", "\\");
             let framework = detect_framework(&doc_root_normalized);
+            let github_url = ProjectDetector::detect_github_url(&PathBuf::from(&doc_root_normalized));
             entries.push(ApachePortEntry {
                 id,
+                name,
                 port: current_port,
                 domain,
                 url,
@@ -452,9 +495,13 @@ fn parse_apache_vhosts(content: &str, config_file: &str, default_doc_root: &str)
                 server_alias: current_aliases.clone(),
                 config_file: config_file.to_string(),
                 framework,
+                has_vhost_block: true,
+                service_url: current_service_url.take(),
+                github_url,
             });
 
             in_vhost = false;
+            current_name.clear();
             continue;
         }
 
@@ -492,6 +539,7 @@ fn parse_apache_vhosts(content: &str, config_file: &str, default_doc_root: &str)
 
             entries.push(ApachePortEntry {
                 id,
+                name: String::new(),
                 port,
                 domain: "localhost".to_string(),
                 url,
@@ -500,6 +548,9 @@ fn parse_apache_vhosts(content: &str, config_file: &str, default_doc_root: &str)
                 server_alias: vec![],
                 config_file: config_file.to_string(),
                 framework,
+                has_vhost_block: false,
+                service_url: None,
+                github_url: None,
             });
         }
     }
@@ -759,6 +810,7 @@ pub async fn restore_config_backup(config_type: String) -> Result<(), String> {
 
 /// Build a regex that matches a VirtualHost block by port and document root.
 /// Handles both cases: with or without ServerName directive.
+/// Also captures optional preceding @Name comment line.
 fn build_vhost_match_regex(port: u16, document_root: &str) -> Result<Regex, String> {
     // Normalize the document root for matching (handle both / and \ separators)
     let doc_root_escaped = regex::escape(document_root)
@@ -766,9 +818,10 @@ fn build_vhost_match_regex(port: u16, document_root: &str) -> Result<Regex, Stri
         .replace(r"/", r"[\\/]");
 
     // Match the VirtualHost block by port + DocumentRoot content
-    // Captures optional preceding comment line(s) as well
+    // Captures optional preceding name comment line (both old @Name: and new 포트 N - name formats)
+    // Also captures optional @ServiceUrl comment line
     let pattern = format!(
-        "(?sm)(?:^[ \\t]*#[^\\n]*\\n)?<VirtualHost\\s+\\*:{}\\s*>\\s*\\n(?:.*?\\n)*?\\s*DocumentRoot\\s+\"?{}\"?\\s*\\n.*?</VirtualHost>\\s*\\n?",
+        "(?sm)(?:^[ \\t]*#[ \\t]*(?:@Name:|포트\\s+\\d+\\s*-\\s*)[^\\n]*\\n)?(?:^[ \\t]*#[ \\t]*@ServiceUrl:[^\\n]*\\n)?(?:^[ \\t]*#[^\\n]*\\n)?<VirtualHost\\s+\\*:{}\\s*>\\s*\\n(?:.*?\\n)*?\\s*DocumentRoot\\s+\"?{}\"?\\s*\\n.*?</VirtualHost>\\s*\\n?",
         port,
         doc_root_escaped
     );
@@ -802,12 +855,32 @@ fn backup_config_file(path: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+/// Check if a document root path points to phpMyAdmin
+fn is_phpmyadmin_path(doc_root: &str) -> bool {
+    let lower = doc_root.to_lowercase();
+    lower.contains("phpmyadmin") || lower.contains("pma")
+}
+
 /// Generate VirtualHost block content
 fn generate_vhost_block(request: &ApacheVHostRequest) -> String {
-    let mut block = format!(
+    let mut block = String::new();
+
+    // Add name as a comment if provided: # 포트 {port} - {name}
+    if !request.name.is_empty() {
+        block.push_str(&format!("# 포트 {} - {}\n", request.port, request.name));
+    }
+
+    // Add service URL comment if provided
+    if let Some(ref service_url) = request.service_url {
+        if !service_url.is_empty() {
+            block.push_str(&format!("# @ServiceUrl: {}\n", service_url));
+        }
+    }
+
+    block.push_str(&format!(
         "<VirtualHost *:{}>\n    ServerName {}\n",
         request.port, request.domain
-    );
+    ));
 
     if !request.server_alias.is_empty() {
         block.push_str(&format!("    ServerAlias {}\n", request.server_alias.join(" ")));
@@ -817,8 +890,15 @@ fn generate_vhost_block(request: &ApacheVHostRequest) -> String {
     let doc_root = request.document_root.replace("\\", "/");
     block.push_str(&format!("    DocumentRoot \"{}\"\n", doc_root));
     block.push_str(&format!("    <Directory \"{}\">\n", doc_root));
+    block.push_str("        Options All\n");
     block.push_str("        AllowOverride All\n");
-    block.push_str("        Require all granted\n");
+
+    // Security: phpMyAdmin paths use "Require local" instead of "Require all granted"
+    if is_phpmyadmin_path(&doc_root) {
+        block.push_str("        Require local\n");
+    } else {
+        block.push_str("        Require all granted\n");
+    }
     block.push_str("    </Directory>\n");
 
     if request.is_ssl {
@@ -832,37 +912,53 @@ fn generate_vhost_block(request: &ApacheVHostRequest) -> String {
 /// Create a new VirtualHost entry
 #[tauri::command]
 pub async fn create_apache_vhost(request: ApacheVHostRequest) -> Result<ApachePortEntry, String> {
-    let vhosts_path = get_vhosts_config_path()?;
+    let httpd_path = get_httpd_config_path()?;
 
     // Create backup
-    backup_config_file(&vhosts_path)?;
+    backup_config_file(&httpd_path)?;
 
-    // Read existing content or create new
-    let mut content = if vhosts_path.exists() {
-        fs::read_to_string(&vhosts_path).map_err(|e| e.to_string())?
-    } else {
-        String::new()
-    };
+    // Read existing content
+    let mut content = fs::read_to_string(&httpd_path).map_err(|e| e.to_string())?;
 
-    // Check if vhost already exists
-    let existing_ports = get_apache_ports().await?;
-    if existing_ports.iter().any(|e| e.port == request.port && e.domain == request.domain) {
+    // Check if an actual VirtualHost block (not just Listen directive) already exists
+    // for this port + domain combination
+    let vhost_check_re = Regex::new(&format!(
+        r"(?si)<VirtualHost\s+\*:{}\s*>.*?ServerName\s+{}.*?</VirtualHost>",
+        request.port,
+        regex::escape(&request.domain)
+    )).map_err(|e| format!("Regex error: {}", e))?;
+
+    let mut vhost_already_exists = vhost_check_re.is_match(&content);
+
+    if !vhost_already_exists {
+        let vhosts_path = get_vhosts_config_path()?;
+        if vhosts_path.exists() {
+            if let Ok(vhosts_content) = fs::read_to_string(&vhosts_path) {
+                vhost_already_exists = vhost_check_re.is_match(&vhosts_content);
+            }
+        }
+    }
+
+    if vhost_already_exists {
         return Err(format!("VirtualHost for port {} and domain {} already exists", request.port, request.domain));
     }
 
     // Ensure Listen port exists in httpd.conf
     ensure_listen_port(request.port).await?;
 
-    // Generate and append new VirtualHost block
+    // Re-read content after ensure_listen_port may have modified httpd.conf
+    content = fs::read_to_string(&httpd_path).map_err(|e| e.to_string())?;
+
+    // Generate and append new VirtualHost block to httpd.conf
     let vhost_block = generate_vhost_block(&request);
-    if !content.is_empty() && !content.ends_with('\n') {
+    if !content.ends_with('\n') {
         content.push('\n');
     }
-    content.push_str("\n");
+    content.push('\n');
     content.push_str(&vhost_block);
 
     // Write updated content
-    fs::write(&vhosts_path, &content).map_err(|e| format!("Failed to write vhosts config: {}", e))?;
+    fs::write(&httpd_path, &content).map_err(|e| format!("Failed to write httpd.conf: {}", e))?;
 
     // Return the created entry
     let id = format!("{}_{}", request.port, request.domain.replace(".", "_"));
@@ -874,17 +970,22 @@ pub async fn create_apache_vhost(request: ApacheVHostRequest) -> Result<ApachePo
     };
     let doc_root_normalized = request.document_root.replace("/", "\\");
     let framework = detect_framework(&doc_root_normalized);
+    let github_url = ProjectDetector::detect_github_url(&PathBuf::from(&doc_root_normalized));
 
     Ok(ApachePortEntry {
         id,
+        name: request.name,
         port: request.port,
         domain: request.domain,
         url,
         document_root: doc_root_normalized,
         is_ssl: request.is_ssl,
         server_alias: request.server_alias,
-        config_file: "httpd-vhosts.conf".to_string(),
+        config_file: "httpd.conf".to_string(),
         framework,
+        has_vhost_block: true,
+        service_url: request.service_url,
+        github_url,
     })
 }
 
@@ -939,9 +1040,11 @@ pub async fn update_apache_vhost(id: String, request: ApacheVHostRequest) -> Res
     };
     let doc_root_normalized = request.document_root.replace("/", "\\");
     let framework = detect_framework(&doc_root_normalized);
+    let github_url = ProjectDetector::detect_github_url(&PathBuf::from(&doc_root_normalized));
 
     Ok(ApachePortEntry {
         id: new_id,
+        name: request.name,
         port: request.port,
         domain: request.domain,
         url,
@@ -950,6 +1053,9 @@ pub async fn update_apache_vhost(id: String, request: ApacheVHostRequest) -> Res
         server_alias: request.server_alias,
         config_file: config_file.clone(),
         framework,
+        has_vhost_block: true,
+        service_url: request.service_url,
+        github_url,
     })
 }
 
@@ -981,15 +1087,58 @@ pub async fn delete_apache_vhost(id: String) -> Result<(), String> {
 
     let new_content = vhost_regex.replace(&content, "").to_string();
 
-    if new_content == content {
-        return Err(format!(
-            "Could not find VirtualHost block for port {} with DocumentRoot '{}' in {}",
-            existing.port, existing.document_root, config_file
-        ));
-    }
+    let is_listen_only = new_content == content;
 
-    // Write updated content
-    fs::write(&config_path, &new_content).map_err(|e| format!("Failed to write config: {}", e))?;
+    if is_listen_only {
+        // No VirtualHost block found - this is a Listen-only entry.
+        // Just remove the Listen port directive directly.
+        let deleted_port = existing.port;
+        if deleted_port == 80 || deleted_port == 443 {
+            return Err(format!("기본 포트 {}의 Listen 디렉티브는 삭제할 수 없습니다", deleted_port));
+        }
+        remove_listen_port(deleted_port).await?;
+    } else {
+        // VirtualHost block was found and removed - write the updated content
+        fs::write(&config_path, &new_content).map_err(|e| format!("Failed to write config: {}", e))?;
+
+        // Auto-remove orphaned Listen port (skip default ports 80, 443)
+        let deleted_port = existing.port;
+        if deleted_port != 80 && deleted_port != 443 {
+            // Check if any VirtualHost block still uses this port by searching config files directly.
+            // We cannot use get_apache_ports() here because it also returns Listen-only entries,
+            // which would always report the port as still in use.
+            let vhost_pattern = Regex::new(&format!(r"(?i)<VirtualHost\s+[^:]*:{}\s*>", deleted_port))
+                .map_err(|e| format!("Regex error: {}", e))?;
+
+            let mut port_still_used = vhost_pattern.is_match(&new_content);
+
+            // Also check other config files
+            if !port_still_used {
+                let httpd_path = get_httpd_config_path()?;
+                let vhosts_path = get_vhosts_config_path()?;
+
+                let other_paths: Vec<PathBuf> = vec![httpd_path, vhosts_path]
+                    .into_iter()
+                    .filter(|p| p.exists() && *p != config_path)
+                    .collect();
+
+                for other_path in other_paths {
+                    if let Ok(other_content) = fs::read_to_string(&other_path) {
+                        if vhost_pattern.is_match(&other_content) {
+                            port_still_used = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if !port_still_used {
+                if let Err(e) = remove_listen_port(deleted_port).await {
+                    eprintln!("Warning: Failed to remove Listen port {}: {}", deleted_port, e);
+                }
+            }
+        }
+    }
 
     Ok(())
 }

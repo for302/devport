@@ -27,6 +27,55 @@ pub struct DetectedProject {
 pub struct ProjectDetector;
 
 impl ProjectDetector {
+    /// Update Tauri project port in tauri.conf.json (devUrl) and vite.config.ts (port)
+    pub fn update_tauri_port(project_path: &Path, new_port: u16) -> Result<(), String> {
+        // 1. Update tauri.conf.json: build.devUrl
+        let tauri_conf = project_path.join("src-tauri").join("tauri.conf.json");
+        if tauri_conf.exists() {
+            let content = fs::read_to_string(&tauri_conf)
+                .map_err(|e| format!("Failed to read tauri.conf.json: {}", e))?;
+            let mut json: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| format!("Failed to parse tauri.conf.json: {}", e))?;
+
+            if let Some(dev_url) = json.pointer_mut("/build/devUrl") {
+                if let Some(url_str) = dev_url.as_str() {
+                    // Replace port in URL like "http://localhost:1420"
+                    let re = regex::Regex::new(r"(https?://[^:]+:)\d+")
+                        .map_err(|e| format!("Regex error: {}", e))?;
+                    let new_url = re.replace(url_str, format!("${{1}}{}", new_port).as_str());
+                    *dev_url = serde_json::Value::String(new_url.to_string());
+                }
+            }
+
+            let pretty = serde_json::to_string_pretty(&json)
+                .map_err(|e| format!("Failed to serialize tauri.conf.json: {}", e))?;
+            fs::write(&tauri_conf, pretty)
+                .map_err(|e| format!("Failed to write tauri.conf.json: {}", e))?;
+        }
+
+        // 2. Update vite.config.ts: port: NNNN (all occurrences)
+        let vite_configs = ["vite.config.ts", "vite.config.js", "vite.config.mts", "vite.config.mjs"];
+        for config_name in &vite_configs {
+            let config_path = project_path.join(config_name);
+            if config_path.exists() {
+                let content = fs::read_to_string(&config_path)
+                    .map_err(|e| format!("Failed to read {}: {}", config_name, e))?;
+
+                let re = regex::Regex::new(r"port:\s*\d+")
+                    .map_err(|e| format!("Regex error: {}", e))?;
+                let new_content = re.replace_all(&content, format!("port: {}", new_port).as_str());
+
+                if new_content != content {
+                    fs::write(&config_path, new_content.as_ref())
+                        .map_err(|e| format!("Failed to write {}: {}", config_name, e))?;
+                }
+                break; // Only update the first matching config file
+            }
+        }
+
+        Ok(())
+    }
+
     /// Check for pnpm-lock.yaml
     fn has_pnpm_lock(project_path: &Path) -> bool {
         project_path.join("pnpm-lock.yaml").exists()
@@ -88,7 +137,7 @@ impl ProjectDetector {
     }
 
     /// Read port from tauri.conf.json (devUrl)
-    fn read_tauri_port(project_path: &Path) -> Option<u16> {
+    pub fn read_tauri_port(project_path: &Path) -> Option<u16> {
         let tauri_conf = project_path.join("src-tauri").join("tauri.conf.json");
         if tauri_conf.exists() {
             if let Ok(content) = fs::read_to_string(&tauri_conf) {

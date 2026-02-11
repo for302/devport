@@ -1,7 +1,18 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ServiceInfo, LogEntry, LogReadResult } from "@/types";
+import { useActivityLogStore } from "./activityLogStore";
+
+interface ServiceLogPayload {
+  serviceId: string;
+  serviceName: string;
+  line: string;
+  stream: "stdout" | "stderr";
+  level: string;
+  timestamp: string;
+}
 
 interface ServiceState {
   services: ServiceInfo[];
@@ -22,6 +33,7 @@ interface ServiceActions {
   clearServiceLogs: (serviceId: string, logType?: string) => Promise<void>;
   setAutoStart: (id: string, autoStart: boolean) => Promise<void>;
   setAutoRestart: (id: string, autoRestart: boolean) => Promise<void>;
+  addServiceLog: (serviceId: string, entry: LogEntry) => void;
   clearError: () => void;
 }
 
@@ -209,6 +221,20 @@ export const useServiceStore = create<ServiceStore>()(
       }
     },
 
+    addServiceLog: (serviceId: string, entry: LogEntry) => {
+      set((state) => {
+        const key = `${serviceId}-stdout`;
+        if (!state.serviceLogs[key]) {
+          state.serviceLogs[key] = [];
+        }
+        state.serviceLogs[key].push(entry);
+        // Keep only the last 1000 entries
+        if (state.serviceLogs[key].length > 1000) {
+          state.serviceLogs[key] = state.serviceLogs[key].slice(-1000);
+        }
+      });
+    },
+
     clearError: () => {
       set((state) => {
         state.error = null;
@@ -216,3 +242,40 @@ export const useServiceStore = create<ServiceStore>()(
     },
   }))
 );
+
+/**
+ * Initialize the service log listener for real-time log streaming
+ * @returns Unlisten function to clean up the listener
+ */
+export async function initServiceLogListener(): Promise<UnlistenFn> {
+  return await listen<ServiceLogPayload>("service-log", (event) => {
+    const { serviceId, serviceName, line, stream, level, timestamp } = event.payload;
+
+    // Map backend level to frontend ActivityLogLevel
+    const mapLevel = (lvl: string): "info" | "success" | "warning" | "error" => {
+      if (lvl === "success") return "success";
+      if (lvl === "error") return "error";
+      if (lvl === "warning") return "warning";
+      return "info";
+    };
+
+    const mappedLevel = mapLevel(level);
+
+    // Add to serviceLogs store
+    useServiceStore.getState().addServiceLog(serviceId, {
+      timestamp,
+      level: mappedLevel,
+      message: line,
+      source: serviceName,
+    });
+
+    // Add to activity log - show all stderr, errors, warnings, and success messages
+    if (stream === "stderr" || level === "error" || level === "warning" || level === "success") {
+      useActivityLogStore.getState().addLog(
+        serviceName,
+        line,
+        mappedLevel
+      );
+    }
+  });
+}

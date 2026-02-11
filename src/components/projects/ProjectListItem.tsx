@@ -2,7 +2,7 @@ import { memo } from "react";
 import { Play, Square, RotateCcw, Folder, Edit, Trash2, Code2, Terminal, Globe, FolderOpen, Github, Loader2 } from "lucide-react";
 import type { Project } from "@/types";
 import { useProcessStore, useUiStore, useActivityLogStore } from "@/stores";
-import { useProjectActions } from "@/hooks";
+import { useProjectActions, useBuildElapsedTime } from "@/hooks";
 import { getProjectTypeColor } from "@/constants";
 
 interface ProjectListItemProps {
@@ -12,11 +12,14 @@ interface ProjectListItemProps {
 export const ProjectListItem = memo(function ProjectListItem({ project }: ProjectListItemProps) {
   const isRunning = useProcessStore((state) => state.isProjectRunning(project.id));
   const isLoading = useProcessStore((state) => state.isLoading[project.id] || false);
+  const buildStatus = useProcessStore((state) => state.buildStatuses[project.id]);
   const startProject = useProcessStore((state) => state.startProject);
   const stopProject = useProcessStore((state) => state.stopProject);
   const restartProject = useProcessStore((state) => state.restartProject);
   const openModal = useUiStore((state) => state.openModal);
   const addLog = useActivityLogStore((state) => state.addLog);
+
+  const elapsedTime = useBuildElapsedTime(project.id);
 
   // Use centralized project actions hook
   const { openInVscode, openInTerminal, openInBrowser, openInExplorer, openGitHub } = useProjectActions(project);
@@ -26,15 +29,16 @@ export const ProjectListItem = memo(function ProjectListItem({ project }: Projec
   const handleStart = async () => {
     addLog(project.name, "Starting project...", "info");
     try {
-      await startProject(project.id);
-      addLog(project.name, project.port > 0 ? `Started on port ${project.port}` : "Started", "success");
+      const processInfo = await startProject(project.id);
+      const actualPort = processInfo.port || project.port;
+      addLog(project.name, actualPort > 0 ? `Started on port ${actualPort}` : "Started", "success");
 
-      // Auto-open browser for web projects (port > 0)
-      if (project.port > 0) {
+      // Auto-open browser for web projects only (not app mode)
+      if (actualPort > 0 && project.launchMode !== "app") {
         // Wait for server to start before opening browser
         setTimeout(() => {
           openInBrowser();
-          addLog(project.name, `Opening http://localhost:${project.port}`, "info");
+          addLog(project.name, `Opening http://localhost:${actualPort}`, "info");
         }, 2000);
       }
     } catch (err) {
@@ -55,8 +59,9 @@ export const ProjectListItem = memo(function ProjectListItem({ project }: Projec
   const handleRestart = async () => {
     addLog(project.name, "Restarting project...", "info");
     try {
-      await restartProject(project.id);
-      addLog(project.name, project.port > 0 ? `Restarted on port ${project.port}` : "Restarted", "success");
+      const processInfo = await restartProject(project.id);
+      const actualPort = processInfo.port || project.port;
+      addLog(project.name, actualPort > 0 ? `Restarted on port ${actualPort}` : "Restarted", "success");
     } catch (err) {
       addLog(project.name, `Failed to restart: ${err}`, "error");
     }
@@ -66,7 +71,14 @@ export const ProjectListItem = memo(function ProjectListItem({ project }: Projec
     <div className="relative">
       <div className="flex items-center gap-4 px-4 py-3 bg-slate-800 hover:bg-slate-750 border-b border-slate-700">
         {/* Status indicator */}
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isLoading ? "bg-yellow-500 animate-pulse" : isRunning ? "bg-green-500 animate-pulse" : "bg-slate-500"}`} />
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+          buildStatus === "compiling" ? "bg-orange-500 animate-pulse" :
+          buildStatus === "error" ? "bg-red-500" :
+          buildStatus === "starting" || buildStatus === "compiled" || isLoading
+            ? "bg-yellow-500 animate-pulse" :
+          isRunning ? "bg-green-500 animate-pulse" :
+          "bg-slate-500"
+        }`} />
 
       {/* Project Type Badge */}
       <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 w-16 text-center ${typeColor}`}>
@@ -88,6 +100,25 @@ export const ProjectListItem = memo(function ProjectListItem({ project }: Projec
       <span className="font-mono text-sm text-white bg-slate-700 px-2 py-0.5 rounded w-16 text-center flex-shrink-0">
         {project.port > 0 ? project.port : "—"}
       </span>
+
+      {/* Build/Start status with elapsed time */}
+      {(buildStatus || isLoading) && !isRunning && (
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className={`text-xs font-medium ${
+            buildStatus === "error" ? "text-red-400" :
+            buildStatus === "compiling" ? "text-orange-400 animate-pulse" :
+            "text-yellow-400 animate-pulse"
+          }`}>
+            {buildStatus === "error" ? "Build Error" :
+             buildStatus === "compiling" ? "Building..." :
+             buildStatus === "compiled" ? "Launching..." :
+             "Starting..."}
+          </span>
+          {elapsedTime && buildStatus !== "error" && (
+            <span className="text-xs text-slate-500 font-mono tabular-nums">{elapsedTime}</span>
+          )}
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="flex items-center gap-1 flex-shrink-0">
@@ -141,8 +172,11 @@ export const ProjectListItem = memo(function ProjectListItem({ project }: Projec
       {/* Control Buttons */}
       <div className="flex items-center gap-1 flex-shrink-0">
         {isLoading ? (
-          <div className="p-1.5">
+          <div className="flex items-center gap-1.5 p-1.5">
             <Loader2 size={16} className="text-yellow-400 animate-spin" />
+            {elapsedTime && (
+              <span className="text-xs text-slate-500 font-mono tabular-nums">{elapsedTime}</span>
+            )}
           </div>
         ) : isRunning ? (
           <>

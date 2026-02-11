@@ -1,7 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::process::Command;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const HOSTS_MARKER_BEGIN: &str = "# DevPort BEGIN";
 const HOSTS_MARKER_END: &str = "# DevPort END";
@@ -92,7 +98,7 @@ impl HostsManager {
             format!("{}\t{}", ip, domain)
         };
 
-        if let Some(begin_pos) = content.find(HOSTS_MARKER_BEGIN) {
+        if content.find(HOSTS_MARKER_BEGIN).is_some() {
             if let Some(end_pos) = content.find(HOSTS_MARKER_END) {
                 let insert_pos = end_pos;
                 content.insert_str(insert_pos, &format!("{}\n", entry_line));
@@ -106,7 +112,7 @@ impl HostsManager {
             ));
         }
 
-        fs::write(&self.hosts_path, content).map_err(|e| e.to_string())
+        self.write_hosts_content(&content)
     }
 
     pub fn remove_entry(&self, domain: &str) -> Result<(), String> {
@@ -140,7 +146,7 @@ impl HostsManager {
         }
 
         let new_content = new_lines.join("\n");
-        fs::write(&self.hosts_path, new_content).map_err(|e| e.to_string())
+        self.write_hosts_content(&new_content)
     }
 
     pub fn update_entry(
@@ -236,7 +242,64 @@ impl HostsManager {
         }
 
         let new_content = new_lines.join("\n");
-        fs::write(&self.hosts_path, new_content).map_err(|e| e.to_string())
+        self.write_hosts_content(&new_content)
+    }
+
+    /// Write content to hosts file, falling back to elevated write on permission error
+    fn write_hosts_content(&self, content: &str) -> Result<(), String> {
+        match fs::write(&self.hosts_path, content) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Try elevated write via PowerShell UAC prompt
+                self.write_hosts_elevated(content)
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    /// Write hosts file content with elevated (admin) privileges via UAC
+    #[cfg(windows)]
+    fn write_hosts_elevated(&self, content: &str) -> Result<(), String> {
+        let temp_dir = std::env::temp_dir();
+        let temp_path = temp_dir.join("devport_hosts_temp");
+
+        fs::write(&temp_path, content)
+            .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+        let hosts_path = self.hosts_path.to_string_lossy().replace('\\', "\\\\");
+        let temp_path_str = temp_path.to_string_lossy().replace('\\', "\\\\");
+
+        let ps_script = format!(
+            "Copy-Item '{}' '{}' -Force",
+            temp_path_str, hosts_path
+        );
+
+        let output = Command::new("powershell")
+            .args([
+                "-Command",
+                &format!(
+                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-Command {}' -WindowStyle Hidden",
+                    ps_script
+                ),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("Failed to request admin privileges: {}", e))?;
+
+        // Cleanup temp file
+        let _ = fs::remove_file(&temp_path);
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Failed to write hosts file with admin privileges: {}", stderr))
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn write_hosts_elevated(&self, _content: &str) -> Result<(), String> {
+        Err("Elevated write is only supported on Windows".to_string())
     }
 }
 

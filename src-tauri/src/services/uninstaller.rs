@@ -401,6 +401,18 @@ impl UninstallManager {
             &mut failed_items,
         );
 
+        // Check if any failures are due to locked files
+        let locked_paths: Vec<PathBuf> = failed_items.iter()
+            .filter(|f| f.reason.contains("file locked"))
+            .filter_map(|f| f.path.as_ref().map(PathBuf::from))
+            .collect();
+
+        let requires_reboot = if !locked_paths.is_empty() {
+            self.schedule_reboot_cleanup(&locked_paths).unwrap_or(false)
+        } else {
+            false
+        };
+
         UninstallResult {
             success: failed_items.is_empty(),
             mode: UninstallMode::Basic,
@@ -408,7 +420,7 @@ impl UninstallManager {
             failed_items,
             services_stopped: true,
             projects_stopped: true,
-            requires_reboot: false,
+            requires_reboot,
             error_message: None,
         }
     }
@@ -853,14 +865,57 @@ impl UninstallManager {
                 });
             }
             Err(e) => {
+                // Check if it's a sharing violation (file locked)
+                let is_locked = Self::is_sharing_violation(&e);
                 failed.push(FailedItem {
                     item_type: UninstallItemType::Directory,
                     path: Some(path.to_string_lossy().to_string()),
                     name: name.to_string(),
-                    reason: e.to_string(),
+                    reason: if is_locked {
+                        format!("{} (file locked - reboot may be required)", e)
+                    } else {
+                        e.to_string()
+                    },
                 });
             }
         }
+    }
+
+    /// Check if an IO error is a sharing violation (file locked by another process)
+    fn is_sharing_violation(error: &std::io::Error) -> bool {
+        // Windows ERROR_SHARING_VIOLATION = 32
+        if let Some(os_error) = error.raw_os_error() {
+            return os_error == 32;
+        }
+        error.kind() == std::io::ErrorKind::PermissionDenied
+    }
+
+    /// Schedule locked files for deletion on next reboot
+    #[cfg(windows)]
+    pub fn schedule_reboot_cleanup(&self, locked_files: &[PathBuf]) -> Result<bool, String> {
+        if locked_files.is_empty() {
+            return Ok(false);
+        }
+
+        // Use MoveFileEx with MOVEFILE_DELAY_UNTIL_REBOOT via PowerShell
+        for file_path in locked_files {
+            let ps_cmd = format!(
+                "[System.IO.File]::Move('{}', $null)",
+                file_path.to_string_lossy().replace('\'', "''")
+            );
+
+            let _ = Command::new("powershell")
+                .args(["-Command", &ps_cmd])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
+
+        Ok(true)
+    }
+
+    #[cfg(not(windows))]
+    pub fn schedule_reboot_cleanup(&self, _locked_files: &[PathBuf]) -> Result<bool, String> {
+        Ok(false)
     }
 
     /// Check if Task Scheduler entry exists

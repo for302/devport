@@ -38,6 +38,20 @@ pub async fn check_port_available(port: u16) -> Result<bool, String> {
     Ok(result)
 }
 
+/// Suggest available ports based on type and preferred port
+#[tauri::command]
+pub async fn suggest_available_port(
+    preferred_port: u16,
+    port_type: String,
+    exclude_ports: Vec<u16>,
+) -> Result<Vec<u16>, String> {
+    tokio::task::spawn_blocking(move || {
+        Ok(PortScanner::suggest_ports(preferred_port, &port_type, &exclude_ports))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Get detailed information about a process by PID
 #[tauri::command]
 pub async fn get_process_details(pid: u32) -> Result<ProcessDetails, String> {

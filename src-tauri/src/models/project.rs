@@ -31,6 +31,10 @@ impl Default for ProjectType {
     }
 }
 
+fn default_launch_mode() -> String {
+    "web".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -47,6 +51,8 @@ pub struct Project {
     pub domain: Option<String>,  // Custom domain for hosts file (e.g., "my-app.test")
     #[serde(default)]
     pub github_url: Option<String>,  // GitHub repository URL
+    #[serde(default = "default_launch_mode")]
+    pub launch_mode: String,  // "web" or "app"
     pub created_at: String,
     pub updated_at: String,
 }
@@ -72,6 +78,7 @@ impl Project {
             health_check_url: None,
             domain: None,
             github_url: None,
+            launch_mode: "web".to_string(),
             created_at: now.clone(),
             updated_at: now,
         }

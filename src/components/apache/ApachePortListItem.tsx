@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Globe, FolderOpen, Edit, Trash2, Lock, ExternalLink, Folder } from "lucide-react";
+import { Globe, FolderOpen, Edit, Trash2, ExternalLink, Folder, AlertTriangle, Terminal, Github } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ApachePortEntry } from "@/types";
 
@@ -11,9 +11,15 @@ interface ApachePortListItemProps {
 
 export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListItemProps) {
   const [siteTitle, setSiteTitle] = useState<string | null>(null);
+  const [folderExists, setFolderExists] = useState<boolean | null>(null);
 
-  // Fetch site title from index file
+  // Fetch site title from index file only if no name is set and domain is localhost
   useEffect(() => {
+    // Skip fetching if we have a user-defined name
+    if (entry.name) {
+      return;
+    }
+
     const fetchTitle = async () => {
       try {
         const title = await invoke<string | null>("get_site_title", {
@@ -29,12 +35,30 @@ export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListIt
     if (entry.domain === "localhost" || entry.domain === "127.0.0.1") {
       fetchTitle();
     }
-  }, [entry.documentRoot, entry.domain]);
+  }, [entry.documentRoot, entry.domain, entry.name]);
 
-  // Display name: site title if available, otherwise domain
-  const displayName = (entry.domain === "localhost" || entry.domain === "127.0.0.1")
-    ? siteTitle || entry.domain
-    : entry.domain;
+  // Check if document root folder exists
+  useEffect(() => {
+    const checkFolder = async () => {
+      try {
+        const exists = await invoke<boolean>("check_document_root", {
+          path: entry.documentRoot,
+        });
+        setFolderExists(exists);
+      } catch {
+        setFolderExists(null);
+      }
+    };
+    checkFolder();
+  }, [entry.documentRoot]);
+
+  // Display name priority: user-defined name > site title > domain
+  const displayName = entry.name || (
+    (entry.domain === "localhost" || entry.domain === "127.0.0.1")
+      ? siteTitle || entry.domain
+      : entry.domain
+  );
+  const hasCustomName = !!entry.name;
 
   const handleOpenBrowser = async () => {
     try {
@@ -49,6 +73,32 @@ export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListIt
       await invoke("open_file_explorer", { path: entry.documentRoot });
     } catch (error) {
       console.error("Failed to open folder:", error);
+    }
+  };
+
+  const handleOpenTerminal = async () => {
+    try {
+      await invoke("open_in_terminal", { path: entry.documentRoot });
+    } catch (error) {
+      console.error("Failed to open terminal:", error);
+    }
+  };
+
+  const handleOpenServiceUrl = async () => {
+    if (!entry.serviceUrl) return;
+    try {
+      await invoke("open_in_browser", { url: entry.serviceUrl });
+    } catch (error) {
+      console.error("Failed to open service URL:", error);
+    }
+  };
+
+  const handleOpenGithub = async () => {
+    if (!entry.githubUrl) return;
+    try {
+      await invoke("open_in_browser", { url: entry.githubUrl });
+    } catch (error) {
+      console.error("Failed to open GitHub:", error);
     }
   };
 
@@ -80,22 +130,29 @@ export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListIt
         {entry.framework}
       </span>
 
-      {/* Name - Domain or Site Title */}
+      {/* Name - User-defined name, Site Title, or Domain */}
       <div className="w-32 min-w-[8rem] flex-shrink-0">
         <h3
-          className={`font-medium truncate ${siteTitle ? "text-white" : "text-slate-400"}`}
-          title={siteTitle ? `${siteTitle} (${entry.domain})` : entry.domain}
+          className={`font-medium truncate ${hasCustomName || siteTitle ? "text-white" : "text-slate-400"}`}
+          title={hasCustomName ? `${entry.name} (${entry.domain})` : (siteTitle ? `${siteTitle} (${entry.domain})` : entry.domain)}
         >
           {displayName}
         </h3>
       </div>
 
       {/* Path - Document Root */}
-      <div className="hidden lg:flex items-center gap-1 text-sm text-slate-400 flex-1 min-w-0">
-        <Folder size={14} className="flex-shrink-0" />
+      <div className={`hidden lg:flex items-center gap-1 text-sm flex-1 min-w-0 ${folderExists === false ? "text-red-400" : "text-slate-400"}`}>
+        {folderExists === false ? (
+          <AlertTriangle size={14} className="flex-shrink-0 text-red-400" />
+        ) : (
+          <Folder size={14} className="flex-shrink-0" />
+        )}
         <span className="truncate" title={entry.documentRoot}>
           {entry.documentRoot}
         </span>
+        {folderExists === false && (
+          <span className="flex-shrink-0 text-xs">(폴더 없음)</span>
+        )}
       </div>
 
       {/* Port */}
@@ -108,7 +165,31 @@ export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListIt
       </span>
 
       {/* Quick Actions */}
-      <div className="flex items-center gap-1 flex-shrink-0 w-32 justify-center">
+      <div className="flex items-center gap-1 flex-shrink-0 w-48 justify-center">
+        <button
+          onClick={handleOpenFolder}
+          disabled={folderExists === false}
+          className={`p-1.5 rounded transition-colors ${
+            folderExists === false
+              ? "text-slate-600 cursor-not-allowed"
+              : "hover:bg-slate-700 text-slate-400 hover:text-yellow-400"
+          }`}
+          title={folderExists === false ? "폴더가 존재하지 않습니다" : "Open Folder"}
+        >
+          <FolderOpen size={16} />
+        </button>
+        <button
+          onClick={handleOpenTerminal}
+          disabled={folderExists === false}
+          className={`p-1.5 rounded transition-colors ${
+            folderExists === false
+              ? "text-slate-600 cursor-not-allowed"
+              : "hover:bg-slate-700 text-slate-400 hover:text-green-400"
+          }`}
+          title={folderExists === false ? "폴더가 존재하지 않습니다" : "Open Terminal"}
+        >
+          <Terminal size={16} />
+        </button>
         <button
           onClick={handleOpenBrowser}
           className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-blue-400 transition-colors"
@@ -117,17 +198,29 @@ export function ApachePortListItem({ entry, onEdit, onDelete }: ApachePortListIt
           <ExternalLink size={16} />
         </button>
         <button
-          onClick={handleOpenFolder}
-          className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-yellow-400 transition-colors"
-          title="Open Folder"
+          onClick={handleOpenServiceUrl}
+          disabled={!entry.serviceUrl}
+          className={`p-1.5 rounded transition-colors ${
+            entry.serviceUrl
+              ? "hover:bg-slate-700 text-slate-400 hover:text-purple-400"
+              : "text-slate-600 cursor-not-allowed"
+          }`}
+          title={entry.serviceUrl ? `Open Service: ${entry.serviceUrl}` : "Service URL 미설정"}
         >
-          <FolderOpen size={16} />
+          <Globe size={16} />
         </button>
-        {entry.isSsl ? (
-          <Lock size={16} className="p-1.5 text-green-400" />
-        ) : (
-          <Globe size={16} className="p-1.5 text-slate-600" />
-        )}
+        <button
+          onClick={handleOpenGithub}
+          disabled={!entry.githubUrl}
+          className={`p-1.5 rounded transition-colors ${
+            entry.githubUrl
+              ? "hover:bg-slate-700 text-slate-400 hover:text-white"
+              : "text-slate-600 cursor-not-allowed"
+          }`}
+          title={entry.githubUrl ? `Open GitHub: ${entry.githubUrl}` : "GitHub 저장소 없음"}
+        >
+          <Github size={16} />
+        </button>
       </div>
 
       {/* Divider */}

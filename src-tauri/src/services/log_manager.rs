@@ -262,6 +262,23 @@ impl LogManager {
             Ok(0)
         }
     }
+
+    /// Append a raw line to a log file (static method for use from threads)
+    pub fn append_line_to_file(path: &Path, line: &str) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+        writeln!(file, "[{}] {}", timestamp, line)?;
+
+        Ok(())
+    }
 }
 
 impl Default for LogManager {

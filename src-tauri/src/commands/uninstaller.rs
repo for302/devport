@@ -93,3 +93,28 @@ pub struct RunningProcessesInfo {
     pub mariadb_running: bool,
     pub any_running: bool,
 }
+
+/// Reboot the system (used after uninstall when files are locked)
+#[tauri::command]
+pub async fn reboot_system(delay_seconds: Option<u32>) -> Result<(), String> {
+    let delay = delay_seconds.unwrap_or(5);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        std::process::Command::new("shutdown")
+            .args(["/r", "/t", &delay.to_string(), "/c", "ClickDevPort: Rebooting to complete uninstall cleanup"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("Failed to initiate reboot: {}", e))?;
+    }
+
+    #[cfg(not(windows))]
+    {
+        return Err("Reboot is only supported on Windows".to_string());
+    }
+
+    Ok(())
+}

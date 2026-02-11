@@ -3,7 +3,7 @@ use crate::services::ServiceManager;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,11 +85,12 @@ pub async fn get_service(
 
 #[tauri::command]
 pub async fn start_service(
+    app: AppHandle,
     service_manager: State<'_, Arc<Mutex<ServiceManager>>>,
     id: String,
 ) -> Result<ServiceInfo, String> {
     let mut manager = service_manager.lock().await;
-    manager.start_service(&id).await?;
+    manager.start_service(&id, Some(app)).await?;
     manager
         .get_service(&id)
         .map(|s| ServiceInfo::from(s))
@@ -111,11 +112,12 @@ pub async fn stop_service(
 
 #[tauri::command]
 pub async fn restart_service(
+    app: AppHandle,
     service_manager: State<'_, Arc<Mutex<ServiceManager>>>,
     id: String,
 ) -> Result<ServiceInfo, String> {
     let mut manager = service_manager.lock().await;
-    manager.restart_service(&id).await?;
+    manager.restart_service(&id, Some(app)).await?;
     manager
         .get_service(&id)
         .map(|s| ServiceInfo::from(s))
