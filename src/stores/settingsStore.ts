@@ -62,7 +62,7 @@ export const useSettingsStore = create<SettingsStore>()(
     immer((set, _get) => ({
       settings: DEFAULT_SETTINGS,
       appInfo: {
-        version: "0.1.0",
+        version: "0.6.0",
         tauriVersion: "2.x",
         buildType: "development",
         buildDate: new Date().toISOString().split("T")[0],
