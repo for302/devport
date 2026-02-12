@@ -317,6 +317,27 @@ impl BundleInstaller {
             match extension {
                 Some("zip") => {
                     Self::emit_log(app_handle, "info", &format!("ZIP 압축 해제: {:?}", bundle_path));
+
+                    // Pre-validate ZIP magic bytes before attempting extraction
+                    {
+                        use std::io::Read as _;
+                        let mut magic_check = File::open(bundle_path)
+                            .map_err(|e| format!("Failed to open bundle for validation: {}", e))?;
+                        let mut magic = [0u8; 4];
+                        magic_check.read_exact(&mut magic)
+                            .map_err(|e| format!("Failed to read file header: {}", e))?;
+                        drop(magic_check);
+
+                        if magic != [0x50, 0x4B, 0x03, 0x04] {
+                            let err = format!(
+                                "Invalid ZIP file: {:?} is not a valid ZIP archive. The download may have failed.",
+                                bundle_path
+                            );
+                            Self::emit_log(app_handle, "error", &err);
+                            return Err(err);
+                        }
+                    }
+
                     let file = File::open(bundle_path).map_err(|e| format!("Failed to open bundle: {}", e))?;
                     let reader = BufReader::new(file);
                     let mut archive = ZipArchive::new(reader)

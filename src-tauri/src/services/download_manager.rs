@@ -1,11 +1,12 @@
 use crate::models::BundleComponent;
 use crate::services::bundle_installer::BundleInstaller;
 use crate::services::bundler::DEVPORT_BASE_PATH;
+use crate::services::version_resolver::VersionResolver;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -123,30 +124,59 @@ impl DownloadManager {
             .map(|f| Self::get_bundles_dir().join(f))
     }
 
-    /// Download a component from URL
+    /// Download a component from URL, with dynamic version resolution and file validation
     pub async fn download_component(
         &mut self,
         component: &BundleComponent,
         app_handle: Option<&AppHandle>,
     ) -> Result<PathBuf, String> {
-        let download_url = component
+        // --- Dynamic version resolution ---
+        let mut download_url = component
             .download_url
-            .as_ref()
+            .clone()
             .ok_or_else(|| "No download URL specified for component".to_string())?;
 
-        let file_name = component
+        let mut file_name = component
             .file_name
-            .as_ref()
+            .clone()
             .ok_or_else(|| "No file name specified for component".to_string())?;
+
+        if component.resolve_strategy.is_some() {
+            let resolver = VersionResolver::new();
+            match resolver.resolve(&component.id).await {
+                Some(resolved) => {
+                    BundleInstaller::emit_log(
+                        app_handle,
+                        "info",
+                        &format!("[{}] 최신 버전 감지: v{}", component.name, resolved.version),
+                    );
+                    download_url = resolved.download_url;
+                    file_name = resolved.file_name;
+                }
+                None => {
+                    BundleInstaller::emit_log(
+                        app_handle,
+                        "warn",
+                        &format!("[{}] 동적 해석 실패, fallback URL 사용", component.name),
+                    );
+                }
+            }
+        }
 
         Self::ensure_directories()?;
 
-        let target_path = Self::get_bundles_dir().join(file_name);
+        let target_path = Self::get_bundles_dir().join(&file_name);
         let temp_path = Self::get_downloads_dir().join(format!("{}.download", file_name));
+
+        // Determine expected extension for validation
+        let extension = Path::new(&file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_string();
 
         // Check if already downloaded
         if target_path.exists() {
-            // Verify integrity if sha256 is provided
             if let Some(expected_hash) = &component.sha256 {
                 if self.verify_file_hash(&target_path, expected_hash)? {
                     return Ok(target_path);
@@ -154,7 +184,18 @@ impl DownloadManager {
                 // Hash mismatch, re-download
                 fs::remove_file(&target_path).ok();
             } else {
-                return Ok(target_path);
+                // No SHA256 — validate with magic bytes + minimum size
+                match Self::validate_downloaded_file(&target_path, &extension) {
+                    Ok(()) => return Ok(target_path),
+                    Err(e) => {
+                        BundleInstaller::emit_log(
+                            app_handle,
+                            "warn",
+                            &format!("캐시 파일 검증 실패 ({}), 재다운로드", e),
+                        );
+                        fs::remove_file(&target_path).ok();
+                    }
+                }
             }
         }
 
@@ -173,7 +214,7 @@ impl DownloadManager {
 
         let response = self
             .client
-            .get(download_url)
+            .get(&download_url)
             .send()
             .await
             .map_err(|e| {
@@ -245,7 +286,14 @@ impl DownloadManager {
             .map_err(|e| format!("Failed to flush file: {}", e))?;
         drop(file);
 
-        // Verify downloaded file
+        // --- Post-download file validation ---
+        Self::validate_downloaded_file(&temp_path, &extension).map_err(|e| {
+            fs::remove_file(&temp_path).ok();
+            BundleInstaller::emit_log(app_handle, "error", &format!("파일 검증 실패: {}", e));
+            e
+        })?;
+
+        // Verify SHA256 if provided
         self.emit_download_progress(
             app_handle,
             component,
@@ -296,6 +344,66 @@ impl DownloadManager {
         let hash_hex = format!("{:x}", hash);
 
         Ok(hash_hex.eq_ignore_ascii_case(expected_hash))
+    }
+
+    /// Validate a downloaded file's integrity (magic bytes + minimum size)
+    fn validate_downloaded_file(path: &Path, expected_extension: &str) -> Result<(), String> {
+        let metadata = fs::metadata(path)
+            .map_err(|e| format!("파일 메타데이터 읽기 실패: {}", e))?;
+
+        // 1. Minimum size check (< 10KB likely an error page)
+        if metadata.len() < 10_240 {
+            return Err(format!(
+                "다운로드된 파일이 너무 작습니다 ({}바이트). 서버 에러 페이지일 수 있습니다.",
+                metadata.len()
+            ));
+        }
+
+        // 2. ZIP magic byte check (PK\x03\x04)
+        if expected_extension == "zip" {
+            let mut file = File::open(path)
+                .map_err(|e| format!("파일 열기 실패: {}", e))?;
+            let mut magic = [0u8; 4];
+            file.read_exact(&mut magic)
+                .map_err(|e| format!("파일 헤더 읽기 실패: {}", e))?;
+
+            if magic != [0x50, 0x4B, 0x03, 0x04] {
+                // Check if it's HTML (error page)
+                file.seek(SeekFrom::Start(0))
+                    .map_err(|e| format!("파일 탐색 실패: {}", e))?;
+                let mut header = [0u8; 256];
+                let n = file.read(&mut header).unwrap_or(0);
+                let header_str = String::from_utf8_lossy(&header[..n]);
+                if header_str.contains("<html") || header_str.contains("<!DOCTYPE") || header_str.contains("<HTML") {
+                    return Err("다운로드 실패: 서버가 HTML 에러 페이지를 반환했습니다. URL이 유효하지 않을 수 있습니다.".into());
+                }
+                return Err("다운로드된 파일이 유효한 ZIP 형식이 아닙니다.".into());
+            }
+        }
+
+        // 3. EXE magic byte check (MZ) for self-extracting archives
+        if expected_extension == "exe" {
+            let mut file = File::open(path)
+                .map_err(|e| format!("파일 열기 실패: {}", e))?;
+            let mut magic = [0u8; 2];
+            file.read_exact(&mut magic)
+                .map_err(|e| format!("파일 헤더 읽기 실패: {}", e))?;
+
+            if magic != [0x4D, 0x5A] {
+                // Check if it's HTML
+                file.seek(SeekFrom::Start(0))
+                    .map_err(|e| format!("파일 탐색 실패: {}", e))?;
+                let mut header = [0u8; 256];
+                let n = file.read(&mut header).unwrap_or(0);
+                let header_str = String::from_utf8_lossy(&header[..n]);
+                if header_str.contains("<html") || header_str.contains("<!DOCTYPE") {
+                    return Err("다운로드 실패: 서버가 HTML 에러 페이지를 반환했습니다.".into());
+                }
+                return Err("다운로드된 파일이 유효한 실행 파일이 아닙니다.".into());
+            }
+        }
+
+        Ok(())
     }
 
     /// Emit download progress event
@@ -479,5 +587,37 @@ mod tests {
 
         assert!(downloads.to_string_lossy().contains("downloads"));
         assert!(bundles.to_string_lossy().contains("bundles"));
+    }
+
+    #[test]
+    fn test_validate_small_file() {
+        // Create a tiny file that should fail validation
+        let temp_dir = std::env::temp_dir().join("devport_test_validate");
+        let _ = fs::create_dir_all(&temp_dir);
+        let small_file = temp_dir.join("small.zip");
+        fs::write(&small_file, b"too small").unwrap();
+
+        let result = DownloadManager::validate_downloaded_file(&small_file, "zip");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("너무 작습니다"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_validate_html_as_zip() {
+        let temp_dir = std::env::temp_dir().join("devport_test_html");
+        let _ = fs::create_dir_all(&temp_dir);
+        let html_file = temp_dir.join("fake.zip");
+        // Write enough bytes to pass size check but fail magic byte check
+        let mut content = b"<!DOCTYPE html><html><body>404 Not Found</body></html>".to_vec();
+        content.resize(11_000, b' '); // pad to > 10KB
+        fs::write(&html_file, &content).unwrap();
+
+        let result = DownloadManager::validate_downloaded_file(&html_file, "zip");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("HTML"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

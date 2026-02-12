@@ -19,6 +19,7 @@ pub mod service_manager;
 pub mod storage;
 pub mod uninstaller;
 pub mod updater;
+pub mod version_resolver;
 
 pub use bundle_installer::{init_bundle_installer, BundleInstaller, SharedBundleInstaller};
 pub use database_manager::DatabaseManager;

@@ -8,6 +8,7 @@ pub mod service;
 pub use bundle::{
     BundleComponent, BundleManifest, ComponentCategory, InstallOptions, InstallPhase,
     InstallPreset, InstallProgress, InstallationState, InstalledComponent, PostInstallAction,
+    ResolveStrategy,
 };
 pub use port_info::PortInfo;
 pub use process_info::ProcessInfo;
