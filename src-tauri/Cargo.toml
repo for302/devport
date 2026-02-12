@@ -1,6 +1,6 @@
 [package]
 name = "clickdevport"
-version = "0.6.0"
+version = "0.6.1"
 description = "ClickDevPort - 통합 개발 환경 관리자"
 authors = ["ClickDevPort"]
 edition = "2021"

@@ -72,7 +72,7 @@ impl VersionResolver {
     pub fn new() -> Self {
         let client = Client::builder()
             .timeout(REQUEST_TIMEOUT)
-            .user_agent("DevPort-Manager/0.6")
+            .user_agent("DevPort-Manager/0.6.1")
             .build()
             .unwrap_or_else(|_| Client::new());
         Self { client }
